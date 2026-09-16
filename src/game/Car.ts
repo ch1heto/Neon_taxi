@@ -9,6 +9,11 @@ export interface CarStatsInput {
   dashLevel: number;
 }
 
+export function clampUpgradeLevel(value: unknown, fallback = 1): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+  return Math.max(1, Math.min(5, Math.round(value)));
+}
+
 export type DrivingSurface = Pick<CityMap,
   'width' | 'height' | 'checkVehicleCollision' | 'checkIslandBoundary' | 'checkTrafficCollision'>;
 
@@ -50,7 +55,7 @@ export class Car {
   public dashCooldownMax = 4.0;
   public dashCooldownTimer = 0;
   public isDashing = false;
-  public dashDuration = 0.25;
+  public dashDuration = 0.45;
   public dashTimer = 0;
   public dashSpeedBoost = 350;
 
@@ -82,17 +87,20 @@ export class Car {
       maxSpeed: 340, acceleration: 380, braking: 620, steering: 3.2,
       grip: 0.86, durability: 1, dashPower: 340, dashCooldown: 4.2,
     };
-    const speedMultiplier = 1 + (stats.speedLevel - 1) * 0.06;
-    const handlingMultiplier = 1 + (stats.handlingLevel - 1) * 0.045;
-    const dashMultiplier = 1 + (stats.dashLevel - 1) * 0.055;
+    const speedLevel = clampUpgradeLevel(stats.speedLevel);
+    const handlingLevel = clampUpgradeLevel(stats.handlingLevel);
+    const dashLevel = clampUpgradeLevel(stats.dashLevel);
+    const speedMultiplier = 1 + (speedLevel - 1) * 0.06;
+    const handlingMultiplier = 1 + (handlingLevel - 1) * 0.045;
+    const dashMultiplier = 1 + (dashLevel - 1) * 0.055;
     this.maxSpeed = model.maxSpeed * speedMultiplier;
-    this.acceleration = model.acceleration * (1 + (stats.speedLevel - 1) * 0.05);
+    this.acceleration = model.acceleration * (1 + (speedLevel - 1) * 0.05);
     this.braking = model.braking * handlingMultiplier;
     this.turnSpeed = model.steering * handlingMultiplier;
     this.lateralGrip = Math.min(0.985, 1 - (1 - model.grip) / handlingMultiplier);
     this.durability = model.durability;
     this.dashSpeedBoost = model.dashPower * dashMultiplier;
-    this.dashCooldownMax = Math.max(1.6, model.dashCooldown * (1 - (stats.dashLevel - 1) * 0.08));
+    this.dashCooldownMax = Math.max(1.6, model.dashCooldown * (1 - (dashLevel - 1) * 0.08));
   }
 
   public recoverAt(x: number, y: number, angle: number) {

@@ -1,6 +1,19 @@
-import { Car, type DrivingSurface } from './Car';
+import { Car, clampUpgradeLevel, type DrivingSurface } from './Car';
 import type { CarSkin } from '../types/game';
 import { closestPointOnSegment, vehicleCollisionCircles, type Contact } from './geometry';
+import { speedToKmh } from './VehicleMetrics';
+
+export type TestDriveUpgradeCategory = 'speed' | 'handling' | 'dash';
+export type TestDriveUpgradeLevels = {
+  speedLevel: number;
+  handlingLevel: number;
+  dashLevel: number;
+};
+export const DEFAULT_TEST_DRIVE_LEVELS: Readonly<TestDriveUpgradeLevels> = Object.freeze({
+  speedLevel: 1,
+  handlingLevel: 1,
+  dashLevel: 1,
+});
 
 type Point = { x: number; y: number };
 export const TEST_DRIVE_ASPHALT_HALF_WIDTH = 94;
@@ -215,6 +228,7 @@ export class TestDriveSession {
   bestLap: number | null = null;
   resetGeneration = 0;
   emergencyResetCount = 0;
+  private upgradeLevels: TestDriveUpgradeLevels = { ...DEFAULT_TEST_DRIVE_LEVELS };
   private accelerationStart: number | null = null;
   private stoppedFor = 0;
   private lapTravel = 0;
@@ -224,7 +238,27 @@ export class TestDriveSession {
     this.skin = skin;
     this.car = new Car(this.track.start.x, this.track.start.y);
     this.car.angle = this.track.start.angle;
-    this.car.applyUpgrades({ speedLevel: 1, handlingLevel: 1, dashLevel: 1 }, skin);
+    this.car.applyUpgrades(this.upgradeLevels, skin);
+  }
+
+  get levels(): Readonly<TestDriveUpgradeLevels> {
+    return { ...this.upgradeLevels };
+  }
+
+  setUpgradeLevel(category: TestDriveUpgradeCategory, requestedLevel: number): boolean {
+    const key: keyof TestDriveUpgradeLevels = `${category}Level`;
+    const currentLevel = this.upgradeLevels[key];
+    const level = clampUpgradeLevel(requestedLevel, currentLevel);
+    if (level === currentLevel) return false;
+
+    this.upgradeLevels = { ...this.upgradeLevels, [key]: level };
+    // applyUpgrades always derives every physics value from the selected model's base stats.
+    this.car.applyUpgrades(this.upgradeLevels, this.skin);
+    this.reset();
+    this.elapsed = 0;
+    this.maxSpeedKmh = 0;
+    this.bestLap = null;
+    return true;
   }
 
   reset() {
@@ -240,7 +274,7 @@ export class TestDriveSession {
 
   update(dt: number, input: { forward: number; reverse: number; steer: number; brake: boolean; dash: boolean }) {
     const before = { x: this.car.x, y: this.car.y };
-    const oldSpeed = this.car.speed / 3;
+    const oldSpeed = speedToKmh(this.car.speed);
     this.car.update(dt, input, this.track, this.skin);
     // Contact keeps ordinary driving in bounds; this only catches corrupt/outlier state.
     if (this.track.project(this.car).distance > 1000) {
@@ -250,7 +284,7 @@ export class TestDriveSession {
     }
     this.elapsed += dt;
     this.lapElapsed += dt;
-    const speedKmh = this.car.speed / 3;
+    const speedKmh = speedToKmh(this.car.speed);
     this.maxSpeedKmh = Math.max(this.maxSpeedKmh, speedKmh);
     if (speedKmh <= 2) {
       this.stoppedFor += dt;

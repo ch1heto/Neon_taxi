@@ -6,6 +6,7 @@ import { ParticleSystem } from './Particles';
 import { YandexAPI } from '../services/YandexAPI';
 import { CAR_SKINS, getUpgradeCost } from './Skins';
 import { PlayerSaveData, CarSkin, Order } from '../types/game';
+export { speedToKmh } from './VehicleMetrics';
 
 export interface GameInputState {
   forward: number;
@@ -23,8 +24,6 @@ export function getCameraProfile(speed: number, maxSpeed: number, nearParking = 
     zoom: nearParking ? 0.98 : 1 - 0.14 * smoothRatio,
   };
 }
-
-export const speedToKmh = (worldSpeed: number) => Math.round(worldSpeed / 3);
 
 export type PurchaseResult =
   | { status: 'success'; saveData: PlayerSaveData }

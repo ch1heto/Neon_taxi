@@ -11,7 +11,8 @@ import {
   MapPin,
 } from 'lucide-react';
 import { PlayerSaveData, Order } from '../types/game';
-import { GameEngine, speedToKmh } from '../game/GameEngine';
+import { GameEngine } from '../game/GameEngine';
+import { speedToKmh } from '../game/VehicleMetrics';
 import { EXPRESS_MAX_MULTIPLIER, getExpressEfficiency, getOrderReward, polylineDistance } from '../game/OrderEconomy';
 
 interface HUDProps {
