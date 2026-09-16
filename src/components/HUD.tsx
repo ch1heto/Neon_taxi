@@ -48,6 +48,7 @@ export function HUD({
   const [fuel, setFuel] = useState(saveData.fuel);
   const [fuelStationStatus, setFuelStationStatus] = useState<FuelStationStatus | null>(null);
   const [refuelFeedback, setRefuelFeedback] = useState('');
+  const [autoDockVisible, setAutoDockVisible] = useState(false);
 
   // 4.1 Анимация вылетающих монет
   const [floatingCoins, setFloatingCoins] = useState<FloatingCoinText[]>([]);
@@ -77,6 +78,7 @@ export function HUD({
       setFuel(engine.saveData.fuel);
       setFuelStationStatus(engine.getFuelStationStatus());
       setRefuelFeedback(engine.getRefuelFeedback());
+      setAutoDockVisible(engine.isPassengerAutoDockIndicatorVisible());
 
       // Перезарядка рывка
       const maxCd = engine.car.dashCooldownMax;
@@ -279,6 +281,11 @@ export function HUD({
       </div>
 
       {/* 2. Нижняя панель: Лаконичный Спидометр и кнопка Neon Dash */}
+      {autoDockVisible && (
+        <div id="hud-auto-dock" className={`absolute ${fuelStationStatus || refuelFeedback ? 'bottom-36' : 'bottom-24'} left-1/2 -translate-x-1/2 rounded-xl bg-cyan-950/92 border border-cyan-300/60 px-4 py-2 text-xs font-extrabold tracking-[0.18em] text-cyan-100 shadow-xl backdrop-blur-md`}>
+          АВТОПАРКОВКА
+        </div>
+      )}
       {(fuelStationStatus || refuelFeedback) && (
         <div id="hud-refuel" className="absolute bottom-24 left-1/2 -translate-x-1/2 rounded-xl bg-slate-950/92 border border-amber-400/50 px-4 py-2 text-xs font-extrabold text-amber-200 shadow-xl backdrop-blur-md">
           {refuelFeedback || (fuelStationStatus?.full

@@ -16,6 +16,7 @@ import { GameEngine } from './game/GameEngine';
 import { PlayerSaveData, Order } from './types/game';
 import { AudioEngine } from './game/AudioEngine';
 import { CAR_SKINS } from './game/Skins';
+import { closestPointOnSegment } from './game/geometry';
 
 export default function App() {
   const [engine, setEngine] = useState<GameEngine | null>(null);
@@ -82,6 +83,30 @@ export default function App() {
           eng.camX = station.x;
           eng.camY = station.y;
         });
+      }
+      if (qaMode === 'parking-assist') {
+        const order = eng.startShift();
+        window.setTimeout(() => {
+          if (engineRef.current !== eng || order.status !== 'pickup') return;
+          const zone = eng.map.parkingZones.find(candidate => candidate.id === order.pickupZoneId);
+          const road = zone && eng.map.roadSegments.find(candidate => candidate.id === zone.accessRoadSegmentId);
+          if (!zone || !road) return;
+          const roadCenter = closestPointOnSegment(
+            zone,
+            { x: road.x1, y: road.y1 },
+            { x: road.x2, y: road.y2 },
+          );
+          const towardRoadX = roadCenter.x - zone.x;
+          const towardRoadY = roadCenter.y - zone.y;
+          const length = Math.hypot(towardRoadX, towardRoadY) || 1;
+          eng.car.recoverAt(
+            zone.x + towardRoadX / length * 92,
+            zone.y + towardRoadY / length * 92,
+            zone.angle + 0.55,
+          );
+          eng.camX = zone.x;
+          eng.camY = zone.y;
+        }, 2500);
       }
     }
     requestAnimationFrame(() => YandexAPI.getInstance().signalLoadingReady());

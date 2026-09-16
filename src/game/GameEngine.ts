@@ -16,6 +16,7 @@ import {
   refuelPrice,
   stationContainsPoint,
 } from './FuelSystem';
+import { PassengerAutoDock } from './PassengerAutoDock';
 
 export interface GameInputState {
   forward: number;
@@ -98,6 +99,7 @@ export class GameEngine {
   public map: CityMap;
   public car: Car;
   public orders: OrdersManager;
+  public passengerAutoDock: PassengerAutoDock;
   public particles: ParticleSystem;
   public yandexApi: YandexAPI;
   public audio: AudioEngine;
@@ -180,6 +182,7 @@ export class GameEngine {
     };
 
     this.orders = new OrdersManager(this.map);
+    this.passengerAutoDock = new PassengerAutoDock(this.map);
     this.yandexApi = YandexAPI.getInstance();
     this.audio = AudioEngine.getInstance();
 
@@ -211,7 +214,10 @@ export class GameEngine {
   }
 
   public startShift() { return this.orders.startShift(); }
-  public refuseOrder() { this.orders.refuseOrder(); }
+  public refuseOrder() {
+    this.passengerAutoDock.cancel();
+    this.orders.refuseOrder();
+  }
   public requestNextOrder() { return this.orders.requestNextOrder(); }
 
   public claimRewardedBonus(orderId: string): boolean {
@@ -336,6 +342,7 @@ export class GameEngine {
   public setPaused(paused: boolean) {
     this.uiPaused = paused;
     this.refreshPauseState();
+    if (paused) this.passengerAutoDock.cancel();
     if (paused && this.fuelDirty) this.saveAndNotify();
   }
 
@@ -411,6 +418,7 @@ export class GameEngine {
 
   public stop() {
     if (this.fuelDirty) this.saveAndNotify();
+    this.passengerAutoDock.cancel();
     this.isRunning = false;
     this.removeInputListeners?.();
     this.removeVisibilityListener?.();
@@ -468,7 +476,8 @@ export class GameEngine {
     }
     const previousPosition = { x: this.car.x, y: this.car.y };
     this.car.setRuntimePerformanceMultiplier(fuelSpeedMultiplier(this.saveData.fuel));
-    this.car.update(dt, input, this.map, this.currentSkin);
+    const autoDock = this.passengerAutoDock.update(dt, this.car, this.orders.getCurrentOrder());
+    if (!autoDock.controlsSuppressed) this.car.update(dt, input, this.map, this.currentSkin);
     const nextFuel = consumeFuelForMovement(
       this.saveData.fuel,
       previousPosition,
@@ -543,6 +552,7 @@ export class GameEngine {
   }
 
   private finishRecovery() {
+    this.passengerAutoDock.cancel();
     this.orders.refuseOrder();
     this.car.recoverAt(3200 * CITY_GEOMETRY_SCALE, 2700 * CITY_GEOMETRY_SCALE, -Math.PI / 2);
     const penalty = Math.min(180, this.saveData.coins);
@@ -569,6 +579,10 @@ export class GameEngine {
 
   public getRefuelFeedback(): string {
     return this.refuelFeedbackTimer > 0 ? this.refuelFeedback : '';
+  }
+
+  public isPassengerAutoDockIndicatorVisible(): boolean {
+    return this.passengerAutoDock.isIndicatorVisible();
   }
 
   public tryRefuel(): boolean {
