@@ -73,6 +73,16 @@ export default function App() {
           for (let tick = 0; tick < 43 && order.status === 'in_transit'; tick++) eng.orders.update(1 / 60, parked(destination));
         });
       }
+      if (qaMode === 'fuel-station') {
+        requestAnimationFrame(() => {
+          if (engineRef.current !== eng) return;
+          const station = eng.map.fuelStations[0];
+          eng.syncSaveData({ ...eng.saveData, fuel: 50 });
+          eng.car.recoverAt(station.x, station.y, station.angle);
+          eng.camX = station.x;
+          eng.camY = station.y;
+        });
+      }
     }
     requestAnimationFrame(() => YandexAPI.getInstance().signalLoadingReady());
   };

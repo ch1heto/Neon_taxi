@@ -2,6 +2,7 @@ export interface PlayerSaveData {
   saveRevision: number;
   updatedAt: number;
   coins: number;
+  fuel: number;
   ordersCompleted: number;
   highScore: number;
   stats: {
@@ -55,6 +56,22 @@ export interface ParkingZone {
   district: string;
   name: string; // название объекта (например: "Отель Неон", "Кибер-Бар")
   accessRoadSegmentId: string;
+}
+
+export interface FuelStation {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  angle: number;
+  accessRoadSegmentId: string;
+  serviceZone: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    angle: number;
+  };
 }
 
 export interface Order {

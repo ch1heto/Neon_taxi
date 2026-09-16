@@ -58,6 +58,7 @@ export class Car {
   public dashDuration = 0.45;
   public dashTimer = 0;
   public dashSpeedBoost = 350;
+  public runtimePerformanceMultiplier = 1;
 
   // Визуальные эффекты
   public particles: Particle[] = [];
@@ -101,6 +102,12 @@ export class Car {
     this.durability = model.durability;
     this.dashSpeedBoost = model.dashPower * dashMultiplier;
     this.dashCooldownMax = Math.max(1.6, model.dashCooldown * (1 - (dashLevel - 1) * 0.08));
+  }
+
+  public setRuntimePerformanceMultiplier(multiplier: number) {
+    this.runtimePerformanceMultiplier = Number.isFinite(multiplier)
+      ? Math.max(0.05, Math.min(1, multiplier))
+      : 1;
   }
 
   public recoverAt(x: number, y: number, angle: number) {
@@ -148,8 +155,8 @@ export class Car {
     // Импульс в сторону текущего направления
     const dirX = Math.cos(this.angle);
     const dirY = Math.sin(this.angle);
-    this.vx += dirX * this.dashSpeedBoost;
-    this.vy += dirY * this.dashSpeedBoost;
+    this.vx += dirX * this.dashSpeedBoost * this.runtimePerformanceMultiplier;
+    this.vy += dirY * this.dashSpeedBoost * this.runtimePerformanceMultiplier;
 
     AudioEngine.getInstance().playDashSound();
     return true;
@@ -229,7 +236,8 @@ export class Car {
         : newForwardVel - Math.sign(newForwardVel) * brakeStep;
       newLateralVel *= Math.pow(0.12, dt * 10);
     }
-    const currentMaxSpeed = this.isDashing ? this.maxSpeed * 1.5 : this.maxSpeed;
+    const fuelLimitedMaxSpeed = this.maxSpeed * this.runtimePerformanceMultiplier;
+    const currentMaxSpeed = this.isDashing ? fuelLimitedMaxSpeed * 1.5 : fuelLimitedMaxSpeed;
 
     if (newForwardVel > currentMaxSpeed) {
       newForwardVel = forwardVel > currentMaxSpeed

@@ -5,6 +5,7 @@ import {
   StreetLight,
   TrafficLight,
   TrafficCar,
+  FuelStation,
 } from '../types/game';
 import { AudioEngine } from './AudioEngine';
 import {
@@ -181,6 +182,12 @@ export interface ParkingValidationResult {
   errors: string[];
 }
 
+export interface FuelStationValidationResult {
+  stationId: string;
+  valid: boolean;
+  errors: string[];
+}
+
 interface OrientedRect extends Point {
   width: number;
   height: number;
@@ -274,6 +281,7 @@ export class CityMap {
   public circularLanes: CircularLane[] = [];
   public laneTransitions: LaneTransition[] = [];
   public parkingZones: ParkingZone[] = [];
+  public fuelStations: FuelStation[] = [];
   public streetLights: StreetLight[] = [];
   public trafficLights: TrafficLight[] = [];
 
@@ -312,6 +320,9 @@ export class CityMap {
     // Финальная раскладка парковок считается от новых дорожных кромок.
     this.createParkingZones();
 
+    // Четыре отдельные roadside service bay, не занимающие traffic lanes и пассажирские парковки.
+    this.createFuelStations();
+
     // 4. Уличная инфраструктура (фонари, светофоры)
     this.createStreetInfrastructure();
 
@@ -322,6 +333,11 @@ export class CityMap {
     if (invalidParking.length > 0) {
       throw new Error(`Invalid parking geometry: ${invalidParking.map(result =>
         `${result.zoneId} (${result.errors.join(', ')})`).join('; ')}`);
+    }
+    const invalidFuelStations = this.validateFuelStations().filter(result => !result.valid);
+    if (invalidFuelStations.length > 0) {
+      throw new Error(`Invalid fuel station geometry: ${invalidFuelStations.map(result =>
+        `${result.stationId} (${result.errors.join(', ')})`).join('; ')}`);
     }
   }
 
@@ -764,6 +780,94 @@ export class CityMap {
     add('pk_ap_3', 'road_6000_4350_6050_5350', 0.30, 1, 'Airport', 'Авиа-Отель «Флай»');
     add('pk_ap_4', 'road_6000_4350_6050_5350', 0.68, 1, 'Airport', 'Грузовой Авиа-Шлюз');
     this.parkingZones = zones;
+  }
+
+  private fuelStationZone(station: FuelStation): ParkingZone {
+    return {
+      id: station.id,
+      name: station.name,
+      district: 'Fuel',
+      accessRoadSegmentId: station.accessRoadSegmentId,
+      ...station.serviceZone,
+    };
+  }
+
+  private createFuelStations() {
+    const stations: FuelStation[] = [];
+    const add = (
+      id: string,
+      name: string,
+      roadId: string,
+      preferredT: number,
+      preferredSide: -1 | 1,
+    ) => {
+      const road = this.roadSegments.find(candidate => candidate.id === roadId);
+      if (!road) throw new Error(`Unknown fuel station access road: ${roadId}`);
+      if (road.kind === 'alley') throw new Error(`Fuel station cannot use alley: ${roadId}`);
+      const dx = road.x2 - road.x1;
+      const dy = road.y2 - road.y1;
+      const length = Math.hypot(dx, dy) || 1;
+      const width = 132;
+      const height = 64;
+      const lateralOffset = road.width / 2 + this.parkingCurbGap + height / 2;
+      const endInset = Math.min(0.45, (width / 2 + 12) / length);
+      const offsets = [0];
+      for (let step = 1; step <= 45; step++) offsets.push(step * 0.015, -step * 0.015);
+      const candidateSides: Array<-1 | 1> = [preferredSide, preferredSide === 1 ? -1 : 1];
+      for (const offset of offsets) {
+        for (const side of candidateSides) {
+          const t = preferredT + offset;
+          if (t < endInset || t > 1 - endInset) continue;
+          const serviceZone = {
+            x: road.x1 + dx * t + (-dy / length) * side * lateralOffset,
+            y: road.y1 + dy * t + (dx / length) * side * lateralOffset,
+            width,
+            height,
+            angle: Math.atan2(dy, dx),
+          };
+          const station: FuelStation = {
+            id,
+            name,
+            x: serviceZone.x,
+            y: serviceZone.y,
+            angle: serviceZone.angle,
+            accessRoadSegmentId: road.id,
+            serviceZone,
+          };
+          const occupied = [
+            ...this.parkingZones,
+            ...stations.map(existing => this.fuelStationZone(existing)),
+          ];
+          if (!this.canPlaceParkingZone(this.fuelStationZone(station), occupied)) continue;
+          stations.push(station);
+          return;
+        }
+      }
+      throw new Error(`No safe fuel station position near road: ${id}`);
+    };
+
+    add('fuel_west_hills', 'NEON FUEL WEST', 'road_1750_1500_1900_3200', 0.58, 1);
+    add('fuel_downtown_industrial', 'VOLT GAS NORTH', 'road_3200_1900_4700_1150', 0.62, -1);
+    add('fuel_port_beach', 'OCEAN DRIVE FUEL', 'road_4050_5250_4750_4400', 0.48, 1);
+    add('fuel_airport', 'AERO FUEL 24', 'road_6000_4350_6050_5350', 0.52, -1);
+    this.fuelStations = stations;
+  }
+
+  public validateFuelStations(): FuelStationValidationResult[] {
+    return this.fuelStations.map(station => {
+      const errors: string[] = [];
+      const road = this.roadSegments.find(candidate => candidate.id === station.accessRoadSegmentId);
+      if (!road) errors.push('access road is missing');
+      else if (road.kind === 'alley') errors.push('access road is an alley');
+      const candidate = this.fuelStationZone(station);
+      const occupied = [
+        ...this.parkingZones,
+        ...this.fuelStations.filter(other => other.id !== station.id).map(other => this.fuelStationZone(other)),
+      ];
+      if (!this.canPlaceParkingZone(candidate, occupied)) errors.push('service bay is obstructed or off-road');
+      if (!this.getParkingAccessGeometry(candidate)) errors.push('roadside access apron is missing');
+      return { stationId: station.id, valid: errors.length === 0, errors };
+    });
   }
 
   public validateParkingZones(): ParkingValidationResult[] {
@@ -2144,6 +2248,15 @@ export class CityMap {
     });
   }
 
+  private isPointInFuelStationAccess(point: Point, margin = 0): boolean {
+    return this.fuelStations.some(station => {
+      const zone = this.fuelStationZone(station);
+      const access = this.getParkingAccessGeometry(zone);
+      return pointInRotatedRect(point, zone, margin) ||
+        Boolean(access && pointInRotatedRect(point, access.apron, margin));
+    });
+  }
+
   public isPointOnLand(x: number, y: number, inset = 0): boolean {
     const point = { x, y };
     const mainlandPolygon = this.getMainlandPolygon();
@@ -2157,7 +2270,8 @@ export class CityMap {
     return this.isPointOnLand(x, y, inset) ||
       this.isPointOnRoad(x, y, -inset) ||
       this.parkingZones.some(zone => pointInRotatedRect(point, zone, -inset)) ||
-      this.isPointInParkingAccess(point, -inset);
+      this.isPointInParkingAccess(point, -inset) ||
+      this.isPointInFuelStationAccess(point, -inset);
   }
 
   public findGpsRoute(
@@ -3150,6 +3264,59 @@ export class CityMap {
     }
 
     // 5. Уличные фонари
+    for (const station of this.fuelStations) {
+      if (station.x + 130 < left || station.x - 130 > right ||
+          station.y + 130 < top || station.y - 130 > bottom) continue;
+      const zone = this.fuelStationZone(station);
+      const access = this.getParkingAccessGeometry(zone);
+      if (access) {
+        ctx.save();
+        ctx.translate(access.apron.x, access.apron.y);
+        ctx.rotate(access.apron.angle);
+        ctx.fillStyle = '#1a2234';
+        ctx.strokeStyle = '#22d3ee';
+        ctx.lineWidth = 2;
+        ctx.fillRect(-access.apron.width / 2, -access.apron.height / 2, access.apron.width, access.apron.height);
+        ctx.strokeRect(-access.apron.width / 2, -access.apron.height / 2, access.apron.width, access.apron.height);
+        ctx.restore();
+      }
+
+      ctx.save();
+      ctx.translate(station.x, station.y);
+      ctx.rotate(station.angle);
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.94)';
+      ctx.strokeStyle = '#22d3ee';
+      ctx.lineWidth = 2.5;
+      ctx.shadowColor = '#06b6d4';
+      ctx.shadowBlur = 10;
+      ctx.fillRect(-zone.width / 2, -zone.height / 2, zone.width, zone.height);
+      ctx.strokeRect(-zone.width / 2, -zone.height / 2, zone.width, zone.height);
+      ctx.shadowBlur = 0;
+
+      ctx.fillStyle = 'rgba(8, 47, 73, 0.9)';
+      ctx.fillRect(-zone.width / 2 + 7, -zone.height / 2 + 6, zone.width - 14, 18);
+      ctx.fillStyle = '#67e8f9';
+      ctx.font = '900 11px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('FUEL · АЗС', 0, -zone.height / 2 + 15);
+
+      for (const pumpX of [-38, 38]) {
+        ctx.fillStyle = '#334155';
+        ctx.fillRect(pumpX - 8, 3, 16, 23);
+        ctx.fillStyle = '#facc15';
+        ctx.fillRect(pumpX - 4, 7, 8, 7);
+        ctx.strokeStyle = '#f472b6';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(pumpX - 8, 3, 16, 23);
+      }
+      ctx.fillStyle = '#22d3ee';
+      ctx.globalAlpha = 0.7 + Math.sin(this.animTimer * 4) * 0.2;
+      ctx.fillRect(-3, -3, 6, 26);
+      ctx.restore();
+    }
+
+    // 6. Уличные фонари
     for (const sl of this.streetLights) {
       if (sl.x + sl.radius < left || sl.x - sl.radius > right || sl.y + sl.radius < top || sl.y - sl.radius > bottom) continue;
 
@@ -3169,7 +3336,7 @@ export class CityMap {
       ctx.restore();
     }
 
-    // 6. НАЗЕМНЫЙ ДОРОЖНЫЙ ТРАФИК (Машины на дорогах!)
+    // 7. НАЗЕМНЫЙ ДОРОЖНЫЙ ТРАФИК (Машины на дорогах!)
     for (const car of this.trafficCars) {
       if (car.x + 80 < left || car.x - 80 > right || car.y + 80 < top || car.y - 80 > bottom) continue;
 

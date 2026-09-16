@@ -617,11 +617,15 @@ test('shop purchase is atomic and save migration repairs legacy skin ids', () =>
 
 test('loaded save data replaces the engine snapshot and applies the selected car', () => {
   const engine = Object.create(GameEngine.prototype) as any;
-  engine.car = { applyUpgrades: (stats: unknown, skin: unknown) => { engine.applied = { stats, skin }; } };
+  engine.car = {
+    applyUpgrades: (stats: unknown, skin: unknown) => { engine.applied = { stats, skin }; },
+    setRuntimePerformanceMultiplier: (multiplier: number) => { engine.appliedFuelMultiplier = multiplier; },
+  };
   const loaded = { ...DEFAULT_SAVE_DATA, coins: 3210, ordersCompleted: 22, selectedSkinId: 'suv', unlockedSkinIds: ['cruiser', 'suv'], stats: { speedLevel: 3, handlingLevel: 2, dashLevel: 4 }, settings: { ...DEFAULT_SAVE_DATA.settings } };
   engine.syncSaveData(loaded);
   assert.equal(engine.saveData.coins, 3210);
   assert.equal(engine.currentSkin.id, 'suv');
+  assert.equal(engine.appliedFuelMultiplier, 1);
   loaded.coins = 0;
   assert.equal(engine.saveData.coins, 3210, 'engine retained a mutable React object');
 });

@@ -11,6 +11,7 @@
 
 import { PlayerSaveData, AdCallbacks } from '../types/game';
 import { CAR_SKINS } from '../game/Skins';
+import { clampFuel, FUEL_CAPACITY } from '../game/FuelSystem';
 
 // Объявление глобального объекта YaGames из CDN скрипта https://yandex.ru/games/sdk/v2
 declare global {
@@ -68,6 +69,7 @@ export const DEFAULT_SAVE_DATA: PlayerSaveData = {
   saveRevision: 0,
   updatedAt: 0,
   coins: 100,
+  fuel: FUEL_CAPACITY,
   ordersCompleted: 0,
   highScore: 0,
   stats: {
@@ -107,6 +109,7 @@ export function migrateSaveData(data: Partial<PlayerSaveData> | null | undefined
     ...DEFAULT_SAVE_DATA,
     ...source,
     coins: Number.isFinite(source.coins) ? Math.max(0, Number(source.coins)) : DEFAULT_SAVE_DATA.coins,
+    fuel: source.fuel === undefined ? FUEL_CAPACITY : clampFuel(source.fuel),
     saveRevision: Number.isFinite(source.saveRevision) ? Math.max(0, Math.floor(Number(source.saveRevision))) : 0,
     updatedAt: Number.isFinite(source.updatedAt) ? Math.max(0, Number(source.updatedAt)) : 0,
     ordersCompleted: Number.isFinite(source.ordersCompleted ?? (source as { completedOrders?: number }).completedOrders)

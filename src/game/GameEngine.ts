@@ -7,6 +7,15 @@ import { YandexAPI } from '../services/YandexAPI';
 import { CAR_SKINS, getUpgradeCost } from './Skins';
 import { PlayerSaveData, CarSkin, Order } from '../types/game';
 export { speedToKmh } from './VehicleMetrics';
+import {
+  clampFuel,
+  consumeFuelForMovement,
+  createRefuelPurchase,
+  fuelSpeedMultiplier,
+  REFUEL_MAX_SPEED,
+  refuelPrice,
+  stationContainsPoint,
+} from './FuelSystem';
 
 export interface GameInputState {
   forward: number;
@@ -14,6 +23,13 @@ export interface GameInputState {
   steer: number;
   brake: boolean;
   dash: boolean;
+}
+
+export interface FuelStationStatus {
+  stationId: string;
+  stationName: string;
+  cost: number;
+  full: boolean;
 }
 
 export function getCameraProfile(speed: number, maxSpeed: number, nearParking = false) {
@@ -104,6 +120,10 @@ export class GameEngine {
   private purchaseInFlight = false;
   private rewardedOrders = new Set<string>();
   private completedRewards = new Map<string, number>();
+  private fuelDirty = false;
+  private fuelSaveElapsed = 0;
+  private refuelFeedback = '';
+  private refuelFeedbackTimer = 0;
 
   // Игровой цикл
   private isRunning = false;
@@ -141,7 +161,7 @@ export class GameEngine {
     }
     this.ctx = context;
 
-    this.saveData = this.cloneSaveData(initialSaveData);
+    this.saveData = { ...this.cloneSaveData(initialSaveData), fuel: clampFuel(initialSaveData.fuel) };
     this.currentSkin = CAR_SKINS.find(s => s.id === initialSaveData.selectedSkinId) || CAR_SKINS[0];
 
     this.map = new CityMap();
@@ -151,6 +171,7 @@ export class GameEngine {
     this.car = new Car(3200 * CITY_GEOMETRY_SCALE, 2700 * CITY_GEOMETRY_SCALE);
     this.car.angle = -Math.PI / 2;
     this.car.applyUpgrades(this.saveData.stats, this.currentSkin);
+    this.car.setRuntimePerformanceMultiplier(fuelSpeedMultiplier(this.saveData.fuel));
 
     // 4.2 Тряска экрана и визуальная отдача при ударе
     this.car.onCrashCallback = (intensity) => {
@@ -204,9 +225,10 @@ export class GameEngine {
   }
 
   public syncSaveData(saveData: PlayerSaveData) {
-    this.saveData = this.cloneSaveData(saveData);
+    this.saveData = { ...this.cloneSaveData(saveData), fuel: clampFuel(saveData.fuel) };
     this.currentSkin = CAR_SKINS.find(s => s.id === this.saveData.selectedSkinId) || CAR_SKINS[0];
     this.car.applyUpgrades(this.saveData.stats, this.currentSkin);
+    this.car.setRuntimePerformanceMultiplier(fuelSpeedMultiplier(this.saveData.fuel));
   }
 
   public updateSkin(skinId: string) {
@@ -292,6 +314,8 @@ export class GameEngine {
   private saveAndNotify() {
     const snapshot = this.yandexApi.prepareSaveData(this.cloneSaveData(this.saveData));
     this.saveData = snapshot;
+    this.fuelDirty = false;
+    this.fuelSaveElapsed = 0;
     void this.yandexApi.savePlayerData(snapshot).catch(error => console.warn('[GameEngine] Save failed:', error));
     this.onDataChangeCallback?.(snapshot);
   }
@@ -312,6 +336,7 @@ export class GameEngine {
   public setPaused(paused: boolean) {
     this.uiPaused = paused;
     this.refreshPauseState();
+    if (paused && this.fuelDirty) this.saveAndNotify();
   }
 
   private refreshPauseState() {
@@ -322,6 +347,7 @@ export class GameEngine {
   private setupInputs() {
     const onKeyDown = (e: KeyboardEvent) => {
       this.audio.unlock();
+      if (e.code === 'KeyF' && !e.repeat) this.tryRefuel();
       this.keyState[e.code] = true;
       this.updateKeyboardInput();
     };
@@ -384,6 +410,7 @@ export class GameEngine {
   }
 
   public stop() {
+    if (this.fuelDirty) this.saveAndNotify();
     this.isRunning = false;
     this.removeInputListeners?.();
     this.removeVisibilityListener?.();
@@ -426,6 +453,10 @@ export class GameEngine {
   };
 
   private update(dt: number, input: GameInputState) {
+    if (this.refuelFeedbackTimer > 0) {
+      this.refuelFeedbackTimer = Math.max(0, this.refuelFeedbackTimer - dt);
+      if (this.refuelFeedbackTimer === 0) this.refuelFeedback = '';
+    }
     if (this.recoveryTimer > 0) {
       this.recoveryTimer -= dt;
       this.damageMessageTimer = Math.max(0, this.damageMessageTimer - dt);
@@ -435,7 +466,21 @@ export class GameEngine {
       if (this.recoveryTimer <= 0) this.finishRecovery();
       return;
     }
+    const previousPosition = { x: this.car.x, y: this.car.y };
+    this.car.setRuntimePerformanceMultiplier(fuelSpeedMultiplier(this.saveData.fuel));
     this.car.update(dt, input, this.map, this.currentSkin);
+    const nextFuel = consumeFuelForMovement(
+      this.saveData.fuel,
+      previousPosition,
+      this.car,
+      true,
+    );
+    if (nextFuel !== this.saveData.fuel) {
+      this.saveData = { ...this.saveData, fuel: nextFuel };
+      this.fuelDirty = true;
+      this.fuelSaveElapsed += dt;
+      if (this.fuelSaveElapsed >= 5) this.saveAndNotify();
+    }
     if (this.car.hp <= 0) {
       this.recoveryTimer = 1.35;
       this.damageMessageTimer = 1.35;
@@ -506,6 +551,45 @@ export class GameEngine {
     this.camY = this.car.y;
     this.cameraZoom = 1;
     this.saveAndNotify();
+  }
+
+  public getFuelStationStatus(): FuelStationStatus | null {
+    if (this.car.speed > REFUEL_MAX_SPEED) return null;
+    const station = this.map.fuelStations.find(candidate =>
+      stationContainsPoint(candidate, this.car.x, this.car.y));
+    if (!station) return null;
+    const cost = refuelPrice(this.saveData.fuel);
+    return {
+      stationId: station.id,
+      stationName: station.name,
+      cost,
+      full: cost === 0,
+    };
+  }
+
+  public getRefuelFeedback(): string {
+    return this.refuelFeedbackTimer > 0 ? this.refuelFeedback : '';
+  }
+
+  public tryRefuel(): boolean {
+    if (this.isPaused || !this.getFuelStationStatus()) return false;
+    const result = createRefuelPurchase(this.saveData);
+    if (result.status === 'insufficientFunds') {
+      this.refuelFeedback = 'НЕДОСТАТОЧНО СРЕДСТВ';
+      this.refuelFeedbackTimer = 2.2;
+      return false;
+    }
+    if (result.status === 'full') {
+      this.refuelFeedback = 'БАК УЖЕ ПОЛОН';
+      this.refuelFeedbackTimer = 1.6;
+      return false;
+    }
+    this.saveData = result.saveData;
+    this.car.setRuntimePerformanceMultiplier(1);
+    this.refuelFeedback = `ЗАПРАВКА ЗАВЕРШЕНА · −${result.cost} $`;
+    this.refuelFeedbackTimer = 2.2;
+    this.saveAndNotify();
+    return true;
   }
 
   private render() {
@@ -665,6 +749,24 @@ export class GameEngine {
       ctx.font = '900 9px system-ui';
       ctx.textAlign = 'center';
       ctx.fillText('P', target.x, target.y + 3);
+    }
+    ctx.fillStyle = '#facc15';
+    ctx.strokeStyle = '#422006';
+    ctx.lineWidth = 1.5;
+    for (const station of this.map.fuelStations) {
+      if (Math.hypot(station.x - this.car.x, station.y - this.car.y) > worldRadius) continue;
+      const p = toRadar(station.x, station.y);
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(Math.PI / 4);
+      ctx.fillRect(-5, -5, 10, 10);
+      ctx.strokeRect(-5, -5, 10, 10);
+      ctx.restore();
+      ctx.fillStyle = '#0f172a';
+      ctx.font = '900 7px system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText('F', p.x, p.y + 2.5);
+      ctx.fillStyle = '#facc15';
     }
     ctx.fillStyle = '#fb7185';
     for (const npc of this.map.trafficCars) {

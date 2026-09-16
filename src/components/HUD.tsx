@@ -11,7 +11,7 @@ import {
   MapPin,
 } from 'lucide-react';
 import { PlayerSaveData, Order } from '../types/game';
-import { GameEngine } from '../game/GameEngine';
+import { GameEngine, type FuelStationStatus } from '../game/GameEngine';
 import { speedToKmh } from '../game/VehicleMetrics';
 import { EXPRESS_MAX_MULTIPLIER, getExpressEfficiency, getOrderReward, polylineDistance } from '../game/OrderEconomy';
 
@@ -45,6 +45,9 @@ export function HUD({
   const [targetDistance, setTargetDistance] = useState(0);
   const [carDistrict, setCarDistrict] = useState('DOWNTOWN');
   const [hp, setHp] = useState(100);
+  const [fuel, setFuel] = useState(saveData.fuel);
+  const [fuelStationStatus, setFuelStationStatus] = useState<FuelStationStatus | null>(null);
+  const [refuelFeedback, setRefuelFeedback] = useState('');
 
   // 4.1 Анимация вылетающих монет
   const [floatingCoins, setFloatingCoins] = useState<FloatingCoinText[]>([]);
@@ -71,6 +74,9 @@ export function HUD({
       const spdKmh = speedToKmh(engine.car.speed);
       setSpeed(spdKmh);
       setHp(Math.round(engine.car.hp));
+      setFuel(engine.saveData.fuel);
+      setFuelStationStatus(engine.getFuelStationStatus());
+      setRefuelFeedback(engine.getRefuelFeedback());
 
       // Перезарядка рывка
       const maxCd = engine.car.dashCooldownMax;
@@ -119,6 +125,12 @@ export function HUD({
       ? 'Заедьте в [P], выровняйтесь и остановитесь'
       : 'Остановитесь в [P] для высадки'
     : '';
+  const roundedFuel = Math.round(fuel);
+  const fuelWarning = fuel <= 5
+    ? 'ТОПЛИВО НА ИСХОДЕ'
+    : fuel <= 20
+      ? 'НИЗКИЙ УРОВЕНЬ ТОПЛИВА'
+      : '';
 
   return (
     <div
@@ -267,9 +279,26 @@ export function HUD({
       </div>
 
       {/* 2. Нижняя панель: Лаконичный Спидометр и кнопка Neon Dash */}
+      {(fuelStationStatus || refuelFeedback) && (
+        <div id="hud-refuel" className="absolute bottom-24 left-1/2 -translate-x-1/2 rounded-xl bg-slate-950/92 border border-amber-400/50 px-4 py-2 text-xs font-extrabold text-amber-200 shadow-xl backdrop-blur-md">
+          {refuelFeedback || (fuelStationStatus?.full
+            ? `${fuelStationStatus.stationName} · БАК ПОЛОН`
+            : `[F] ЗАПРАВИТЬСЯ · ${fuelStationStatus?.cost ?? 0} $`)}
+        </div>
+      )}
       <div className="flex items-end justify-between w-full pointer-events-auto">
         {/* Лаконичный спидометр без лишнего неона */}
         <div className="flex flex-col gap-2">
+        <div id="hud-fuel" className={`px-3 py-2 rounded-xl bg-slate-900/85 border shadow-lg backdrop-blur-md ${fuel <= 20 ? 'border-amber-400/60' : 'border-slate-700/70'}`}>
+          <div className="flex items-center justify-between gap-3 text-[11px] font-bold mb-1">
+            <span className="text-slate-300">ТОПЛИВО</span>
+            <span className={fuel <= 5 ? 'text-rose-400' : fuel <= 20 ? 'text-amber-300' : 'text-cyan-300'}>{roundedFuel}%</span>
+          </div>
+          <div className="w-24 sm:w-32 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+            <div className={`h-full rounded-full transition-all duration-150 ${fuel <= 5 ? 'bg-rose-500' : fuel <= 20 ? 'bg-amber-400' : 'bg-cyan-400'}`} style={{ width: `${Math.max(0, Math.min(100, fuel))}%` }} />
+          </div>
+          {fuelWarning && <div className={`mt-1 text-[9px] font-extrabold ${fuel <= 5 ? 'text-rose-300' : 'text-amber-300'}`}>{fuelWarning}</div>}
+        </div>
         <div id="hud-hp" className="px-3 py-2 rounded-xl bg-slate-900/85 border border-slate-700/70 shadow-lg backdrop-blur-md">
           <div className="flex items-center justify-between text-[11px] font-bold mb-1"><span className="text-slate-300">HP АВТО</span><span className={hp < 30 ? 'text-rose-400' : 'text-emerald-400'}>{hp}%</span></div>
           <div className="w-24 sm:w-32 h-1.5 bg-slate-800 rounded-full overflow-hidden"><div className={`h-full rounded-full transition-all ${hp < 30 ? 'bg-rose-500' : 'bg-emerald-400'}`} style={{ width: `${hp}%` }} /></div>
