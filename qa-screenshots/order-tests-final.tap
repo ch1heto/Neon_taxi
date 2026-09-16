@@ -1,0 +1,59 @@
+TAP version 13
+# normal pay calibration: old median 220, route median 232
+# [YandexAPI] YaGames SDK недоступен, включен безопасный MOCK режим: Error: YaGames script not available in window
+#     at YandexAPI.init (V:\\work\\Ayandexgame_Vlad\\neon-taxi---cyberpunk-2d-html5 (2)(2)\\src\\services\\YandexAPI.ts:252:15)
+#     at TestContext.<anonymous> (V:\\work\\Ayandexgame_Vlad\\neon-taxi---cyberpunk-2d-html5 (2)(2)\\tests\\order-patch.test.ts:124:26)
+#     at Test.runInAsyncScope (node:async_hooks:214:14)
+#     at Test.run (node:internal/test_runner/test:1047:25)
+#     at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+#     at Test.postRun (node:internal/test_runner/test:1173:19)
+#     at Test.run (node:internal/test_runner/test:1101:12)
+#     at async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+# [YandexAPI:Mock] Запуск симуляции Rewarded Video...
+# [YandexAPI:Mock] Запуск симуляции Rewarded Video...
+# [YandexAPI:Mock] Запуск симуляции Rewarded Video...
+# Subtest: road route, not straight-line distance, determines normal pay; median remains calibrated
+ok 1 - road route, not straight-line distance, determines normal pay; median remains calibrated
+  ---
+  duration_ms: 900.8812
+  type: 'test'
+  ...
+# Subtest: normal is fixed; express tapers monotonically within bounds and can pay less
+ok 2 - normal is fixed; express tapers monotonically within bounds and can pay less
+  ---
+  duration_ms: 0.4185
+  type: 'test'
+  ...
+# Subtest: off shift stays empty, pickup does not run ride clock, refuse clears GPS and stops auto spawn
+ok 3 - off shift stays empty, pickup does not run ride clock, refuse clears GPS and stops auto spawn
+  ---
+  duration_ms: 794.0365
+  type: 'test'
+  ...
+# Subtest: delivery pays and persists once before modal; rewarded errors and duplicate callbacks are safe
+ok 4 - delivery pays and persists once before modal; rewarded errors and duplicate callbacks are safe
+  ---
+  duration_ms: 681.3391
+  type: 'test'
+  ...
+# Subtest: save conflict picks one whole newer snapshot and migrates legacy ownership
+ok 5 - save conflict picks one whole newer snapshot and migrates legacy ownership
+  ---
+  duration_ms: 1.6565
+  type: 'test'
+  ...
+# Subtest: test-drive track and temporary locked car measure speed, 0–100, reset and lap without save changes
+ok 6 - test-drive track and temporary locked car measure speed, 0–100, reset and lap without save changes
+  ---
+  duration_ms: 67.9664
+  type: 'test'
+  ...
+1..6
+# tests 6
+# suites 0
+# pass 6
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2846.5427

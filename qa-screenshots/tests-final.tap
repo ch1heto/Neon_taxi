@@ -1,0 +1,281 @@
+TAP version 13
+# Subtest: airport render transform and collision transform use the same rotated ellipse
+ok 1 - airport render transform and collision transform use the same rotated ellipse
+  ---
+  duration_ms: 1108.4311
+  type: 'test'
+  ...
+# Subtest: every rendered road centerline is physically supported, including bridge and remote districts
+ok 2 - every rendered road centerline is physically supported, including bridge and remote districts
+  ---
+  duration_ms: 908.8585
+  type: 'test'
+  ...
+# Subtest: roundabouts are asphalt rings with solid central islands
+ok 3 - roundabouts are asphalt rings with solid central islands
+  ---
+  duration_ms: 803.9435
+  type: 'test'
+  ...
+# Subtest: navigation graph contains true mid-segment intersections and no proximity-only links
+ok 4 - navigation graph contains true mid-segment intersections and no proximity-only links
+  ---
+  duration_ms: 766.8486
+  type: 'test'
+  ...
+# Subtest: unified road model has stable IDs, real junctions and no implicit U-turns
+ok 5 - unified road model has stable IDs, real junctions and no implicit U-turns
+  ---
+  duration_ms: 775.5551
+  type: 'test'
+  ...
+# Subtest: GPS uses physical lane distance, matching heading and roundabout transitions
+ok 6 - GPS uses physical lane distance, matching heading and roundabout transitions
+  ---
+  duration_ms: 733.042
+  type: 'test'
+  ...
+# Subtest: GPS visible route removes travelled prefix, keeps waypoint progress, and reroutes off-route
+ok 7 - GPS visible route removes travelled prefix, keeps waypoint progress, and reroutes off-route
+  ---
+  duration_ms: 641.0762
+  type: 'test'
+  ...
+# Subtest: diagonal roundabout transitions use contact angles and never create an accidental full lap
+ok 8 - diagonal roundabout transitions use contact angles and never create an accidental full lap
+  ---
+  duration_ms: 628.9134
+  type: 'test'
+  ...
+# Subtest: GPS may use a materially shorter alley while NPC lanes exclude alleys
+ok 9 - GPS may use a materially shorter alley while NPC lanes exclude alleys
+  ---
+  duration_ms: 634.9518
+  type: 'test'
+  ...
+# Subtest: GPS remains logical and stable across 20 gameplay routes
+ok 10 - GPS remains logical and stable across 20 gameplay routes
+  ---
+  duration_ms: 655.7628
+  type: 'test'
+  ...
+# Subtest: building data leaves a safety gap from every asphalt corridor
+ok 11 - building data leaves a safety gap from every asphalt corridor
+  ---
+  duration_ms: 759.5902
+  type: 'test'
+  ...
+# Subtest: ordinary streets are lined by dense, road-derived facade rows
+ok 12 - ordinary streets are lined by dense, road-derived facade rows
+  ---
+  duration_ms: 660.1442
+  type: 'test'
+  ...
+# Subtest: all parking bays are aligned roadside pockets with continuous physical access
+ok 13 - all parking bays are aligned roadside pockets with continuous physical access
+  ---
+  duration_ms: 675.7101
+  type: 'test'
+  ...
+# Subtest: parking validator covers straight, junction, alley, roundabout, building and Industrial regressions
+ok 14 - parking validator covers straight, junction, alley, roundabout, building and Industrial regressions
+  ---
+  duration_ms: 643.2015
+  type: 'test'
+  ...
+# Subtest: full parking rectangles stay off every travel surface and use a road-edge apron
+ok 15 - full parking rectangles stay off every travel surface and use a road-edge apron
+  ---
+  duration_ms: 746.9174
+  type: 'test'
+  ...
+# Subtest: all ordinary districts, roads and buildings are on the connected mainland
+ok 16 - all ordinary districts, roads and buildings are on the connected mainland
+  ---
+  duration_ms: 624.7374
+  type: 'test'
+  ...
+# Subtest: every alley is connected, drivable and clear of building colliders
+ok 17 - every alley is connected, drivable and clear of building colliders
+  ---
+  duration_ms: 640.2159
+  type: 'test'
+  ...
+# Subtest: shop purchase is atomic and save migration repairs legacy skin ids
+ok 18 - shop purchase is atomic and save migration repairs legacy skin ids
+  ---
+  duration_ms: 0.5997
+  type: 'test'
+  ...
+# Subtest: loaded save data replaces the engine snapshot and applies the selected car
+ok 19 - loaded save data replaces the engine snapshot and applies the selected car
+  ---
+  duration_ms: 0.2229
+  type: 'test'
+  ...
+# Subtest: car model stats remain distinct and upgrades scale their bases
+ok 20 - car model stats remain distinct and upgrades scale their bases
+  ---
+  duration_ms: 0.2904
+  type: 'test'
+  ...
+# Subtest: impact damage scales with force and persistent contact is cooled down
+ok 21 - impact damage scales with force and persistent contact is cooled down
+  ---
+  duration_ms: 0.1699
+  type: 'test'
+  ...
+# Subtest: street, highway and alley widths match the expanded city scale
+ok 22 - street, highway and alley widths match the expanded city scale
+  ---
+  duration_ms: 629.2027
+  type: 'test'
+  ...
+# Subtest: camera profile adds smooth high-speed look-ahead and zoom while parking stays close
+ok 23 - camera profile adds smooth high-speed look-ahead and zoom while parking stays close
+  ---
+  duration_ms: 0.3593
+  type: 'test'
+  ...
+# Subtest: Space maps to brake, X maps to dash, and braking never engages reverse
+ok 24 - Space maps to brake, X maps to dash, and braking never engages reverse
+  ---
+  duration_ms: 625.9514
+  type: 'test'
+  ...
+# Subtest: traffic follows lanes continuously and remains on rendered asphalt
+ok 25 - traffic follows lanes continuously and remains on rendered asphalt
+  ---
+  duration_ms: 3865.7611
+  type: 'test'
+  ...
+# Subtest: same-length NPC ids choose deterministic but diverse valid routes
+ok 26 - same-length NPC ids choose deterministic but diverse valid routes
+  ---
+  duration_ms: 698.5081
+  type: 'test'
+  ...
+# Subtest: cross-lane collision prediction chooses one deterministic yielding NPC
+ok 27 - cross-lane collision prediction chooses one deterministic yielding NPC
+  ---
+  duration_ms: 631.9906
+  type: 'test'
+  ...
+# Subtest: transition-path reservations allow compatible flows and serialize physical conflicts
+ok 28 - transition-path reservations allow compatible flows and serialize physical conflicts
+  ---
+  duration_ms: 1325.3194
+  type: 'test'
+  ...
+# Subtest: ordinary 90-degree turn completes at gameplay speed
+ok 29 - ordinary 90-degree turn completes at gameplay speed
+  ---
+  duration_ms: 704.5485
+  type: 'test'
+  ...
+# Subtest: roundabouts use one legal direction and allow cars on separate sections
+ok 30 - roundabouts use one legal direction and allow cars on separate sections
+  ---
+  duration_ms: 621.4935
+  type: 'test'
+  ...
+# Subtest: transition reservations serialize conflicts, expire, and release after exit
+ok 31 - transition reservations serialize conflicts, expire, and release after exit
+  ---
+  duration_ms: 3278.3181
+  type: 'test'
+  ...
+# Subtest: 120-second rolling progress monitor rejects stale blocking reasons
+ok 32 - 120-second rolling progress monitor rejects stale blocking reasons
+  ---
+  duration_ms: 11378.7484
+  type: 'test'
+  ...
+# Subtest: 180-second traffic soak stays continuous, separated, on asphalt and making progress
+ok 33 - 180-second traffic soak stays continuous, separated, on asphalt and making progress
+  ---
+  duration_ms: 52794.2644
+  type: 'test'
+  ...
+# Subtest: stuck traffic softly backs up and replans without a visible teleport
+ok 34 - stuck traffic softly backs up and replans without a visible teleport
+  ---
+  duration_ms: 669.6488
+  type: 'test'
+  ...
+# Subtest: pickup requires 7/9 footprint points, alignment, low speed and a 0.7 second dwell
+ok 35 - pickup requires 7/9 footprint points, alignment, low speed and a 0.7 second dwell
+  ---
+  duration_ms: 670.8115
+  type: 'test'
+  ...
+# Subtest: high speed vehicle footprint cannot tunnel through a building
+ok 36 - high speed vehicle footprint cannot tunnel through a building
+  ---
+  duration_ms: 660.0131
+  type: 'test'
+  ...
+# Subtest: wall response removes inward velocity while preserving tangential slide
+ok 37 - wall response removes inward velocity while preserving tangential slide
+  ---
+  duration_ms: 649.0936
+  type: 'test'
+  ...
+# normal pay calibration: old median 220, route median 232
+# [YandexAPI] YaGames SDK недоступен, включен безопасный MOCK режим: Error: YaGames script not available in window
+#     at YandexAPI.init (V:\\work\\Ayandexgame_Vlad\\neon-taxi---cyberpunk-2d-html5 (2)(2)\\src\\services\\YandexAPI.ts:252:15)
+#     at TestContext.<anonymous> (V:\\work\\Ayandexgame_Vlad\\neon-taxi---cyberpunk-2d-html5 (2)(2)\\tests\\order-patch.test.ts:124:26)
+#     at Test.runInAsyncScope (node:async_hooks:214:14)
+#     at Test.run (node:internal/test_runner/test:1047:25)
+#     at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+#     at Test.postRun (node:internal/test_runner/test:1173:19)
+#     at Test.run (node:internal/test_runner/test:1101:12)
+#     at async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+# [YandexAPI:Mock] Запуск симуляции Rewarded Video...
+# [YandexAPI:Mock] Запуск симуляции Rewarded Video...
+# [YandexAPI:Mock] Запуск симуляции Rewarded Video...
+# Subtest: road route, not straight-line distance, determines normal pay; median remains calibrated
+ok 38 - road route, not straight-line distance, determines normal pay; median remains calibrated
+  ---
+  duration_ms: 1144.4465
+  type: 'test'
+  ...
+# Subtest: normal is fixed; express tapers monotonically within bounds and can pay less
+ok 39 - normal is fixed; express tapers monotonically within bounds and can pay less
+  ---
+  duration_ms: 0.3644
+  type: 'test'
+  ...
+# Subtest: off shift stays empty, pickup does not run ride clock, refuse clears GPS and stops auto spawn
+ok 40 - off shift stays empty, pickup does not run ride clock, refuse clears GPS and stops auto spawn
+  ---
+  duration_ms: 938.3325
+  type: 'test'
+  ...
+# Subtest: delivery pays and persists once before modal; rewarded errors and duplicate callbacks are safe
+ok 41 - delivery pays and persists once before modal; rewarded errors and duplicate callbacks are safe
+  ---
+  duration_ms: 797.2919
+  type: 'test'
+  ...
+# Subtest: save conflict picks one whole newer snapshot and migrates legacy ownership
+ok 42 - save conflict picks one whole newer snapshot and migrates legacy ownership
+  ---
+  duration_ms: 1.4666
+  type: 'test'
+  ...
+# Subtest: test-drive track and temporary locked car measure speed, 0–100, reset and lap without save changes
+ok 43 - test-drive track and temporary locked car measure speed, 0–100, reset and lap without save changes
+  ---
+  duration_ms: 19.7178
+  type: 'test'
+  ...
+1..43
+# tests 43
+# suites 0
+# pass 43
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 92135.5808
