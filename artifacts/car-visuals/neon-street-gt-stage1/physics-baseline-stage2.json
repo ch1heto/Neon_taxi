@@ -1,0 +1,102 @@
+{
+  "carLogicBeforeRendererSha256": "6480522114161ebe242dcf457cf561beb19544503f4c2af879d5d9b5c94bbfe3",
+  "carSkinPhysics": {
+    "aerocar": {
+      "acceleration": "620",
+      "armorBonus": null,
+      "braking": "740",
+      "dashCooldown": "2.8",
+      "dashPower": "520",
+      "durability": "0.9",
+      "grip": "0.92",
+      "handlingBonus": "0.5",
+      "length": "58",
+      "maxSpeed": "510",
+      "speedBonus": "170",
+      "steering": "4",
+      "width": "32"
+    },
+    "cruiser": {
+      "acceleration": "380",
+      "armorBonus": null,
+      "braking": "620",
+      "dashCooldown": "4.2",
+      "dashPower": "340",
+      "durability": "1",
+      "grip": "0.86",
+      "handlingBonus": "0",
+      "length": "52",
+      "maxSpeed": "340",
+      "speedBonus": "0",
+      "steering": "3.2",
+      "width": "28"
+    },
+    "hyper": {
+      "acceleration": "560",
+      "armorBonus": null,
+      "braking": "640",
+      "dashCooldown": "3.35",
+      "dashPower": "455",
+      "durability": "0.8",
+      "grip": "0.76",
+      "handlingBonus": "0.18",
+      "length": "60",
+      "maxSpeed": "442",
+      "speedBonus": "102",
+      "steering": "3.65",
+      "width": "31"
+    },
+    "sport": {
+      "acceleration": "475",
+      "armorBonus": null,
+      "braking": "690",
+      "dashCooldown": "3.7",
+      "dashPower": "390",
+      "durability": "0.85",
+      "grip": "0.82",
+      "handlingBonus": "0.25",
+      "length": "56",
+      "maxSpeed": "392",
+      "speedBonus": "52",
+      "steering": "3.75",
+      "width": "30"
+    },
+    "suv": {
+      "acceleration": "340",
+      "armorBonus": "0.35",
+      "braking": "660",
+      "dashCooldown": "4.4",
+      "dashPower": "315",
+      "durability": "1.35",
+      "grip": "0.94",
+      "handlingBonus": "0.08",
+      "length": "62",
+      "maxSpeed": "357",
+      "speedBonus": "17",
+      "steering": "2.9",
+      "width": "34"
+    }
+  },
+  "carSkinTypeSignatures": {
+    "acceleration": "acceleration:number",
+    "armorBonus": "armorBonus?:number",
+    "braking": "braking:number",
+    "dashCooldown": "dashCooldown:number",
+    "dashPower": "dashPower:number",
+    "durability": "durability:number",
+    "grip": "grip:number",
+    "handlingBonus": "handlingBonus:number",
+    "length": "length:number",
+    "maxSpeed": "maxSpeed:number",
+    "speedBonus": "speedBonus:number",
+    "steering": "steering:number",
+    "width": "width:number"
+  },
+  "protectedFiles": {
+    "src/game/CityMap.ts": "c8d85d46a70b4f499884c15f322ecec21e418bef11379dd8b38f2f5b35cf29f6",
+    "src/game/GameEngine.ts": "54fb45edd888f764ac342ff1dbdca927103f60f606b391c94dab64e67fe27807",
+    "src/game/TestDriveTrack.ts": "96f5b4e37bd568945ec376f8d1ed0e45c5e4e232bcc97fb8ef9083cace1d3b1b"
+  },
+  "schemaVersion": 1,
+  "upgradeRulesSha256": "725a609f5f6f27fa57906ad1c4a9d087c7e2341a2362978a9a2184a0519feb2e"
+}

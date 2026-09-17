@@ -79,8 +79,8 @@ test('fuel consumption is distance-based, FPS-independent and ignores idle or te
   assert.ok(Math.abs(sixtyFpsFuel - lowFpsFuel) < 1e-9);
 });
 
-test('a full tank represents the configured 120,000-world-unit range', () => {
-  assert.equal(FULL_TANK_RANGE_WORLD_UNITS, 120_000);
+test('a full tank represents the configured 800,000-world-unit range', () => {
+  assert.equal(FULL_TANK_RANGE_WORLD_UNITS, 800_000);
   const fuelAfterDistance = (totalDistance: number) => {
     let fuel = 100;
     for (let distance = 0; distance < totalDistance; distance += 100) {
@@ -88,9 +88,9 @@ test('a full tank represents the configured 120,000-world-unit range', () => {
     }
     return fuel;
   };
-  assert.ok(Math.abs(fuelAfterDistance(30_000) - 75) < 1e-9);
-  assert.ok(Math.abs(fuelAfterDistance(60_000) - 50) < 1e-9);
-  assert.ok(fuelAfterDistance(120_000) < 1e-9);
+  assert.ok(Math.abs(fuelAfterDistance(200_000) - 75) < 1e-9);
+  assert.ok(Math.abs(fuelAfterDistance(400_000) - 50) < 1e-9);
+  assert.ok(fuelAfterDistance(800_000) < 1e-9);
 });
 
 test('fuel speed curve matches 100/60/40/20/0 breakpoints and begins below 60', () => {

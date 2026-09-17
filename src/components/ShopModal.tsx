@@ -5,6 +5,7 @@ import { CAR_SKINS, getUpgradeCost } from '../game/Skins';
 import { GameEngine } from '../game/GameEngine';
 import { AudioEngine } from '../game/AudioEngine';
 import { CarPreviewCanvas } from './CarPreviewCanvas';
+import { MAZDA_RX7_FD_TEST_DRIVE_SKIN } from '../game/ExperimentalCars';
 
 interface ShopModalProps {
   isOpen: boolean;
@@ -262,6 +263,30 @@ export function ShopModal({
                     ТЕСТ-ДРАЙВ · {currentPreviewSkin.name.toUpperCase()}
                   </button>
                 </div>
+              </div>
+            </div>
+
+            {/* Test-only vehicle: deliberately outside CAR_SKINS and every commerce/ownership path. */}
+            <div id="experimental-mazda-rx7-fd" className="bg-rose-950/25 border border-rose-500/35 rounded-2xl p-4 flex flex-col sm:flex-row items-center gap-4">
+              <div className="w-full sm:w-2/5 shrink-0">
+                <CarPreviewCanvas skin={MAZDA_RX7_FD_TEST_DRIVE_SKIN} />
+              </div>
+              <div className="w-full sm:w-3/5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-black tracking-widest px-2 py-1 rounded bg-rose-500 text-white">EXPERIMENTAL</span>
+                  <span className="text-[10px] font-bold tracking-widest px-2 py-1 rounded bg-slate-800 text-rose-200 border border-rose-500/30">TEST VEHICLE</span>
+                </div>
+                <h3 className="mt-2 text-lg font-bold text-white">MAZDA RX-7 FD</h3>
+                <p className="mt-1 text-xs leading-relaxed text-slate-300">
+                  Отдельный тестовый профиль с временными уровнями Speed / Handling / Dash. Не продаётся, не выбирается для карьеры и не сохраняется.
+                </p>
+                <button
+                  id="experimental-mazda-test-drive"
+                  onClick={() => onTestDrive(MAZDA_RX7_FD_TEST_DRIVE_SKIN)}
+                  className="w-full mt-3 py-2.5 px-4 rounded-xl bg-rose-500 hover:bg-rose-400 text-white font-bold text-xs transition-colors shadow-lg shadow-rose-500/20"
+                >
+                  ТЕСТ-ДРАЙВ · MAZDA RX-7 FD
+                </button>
               </div>
             </div>
 

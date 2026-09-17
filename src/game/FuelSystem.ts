@@ -3,7 +3,7 @@ import type { CityMap } from './CityMap';
 import { closestPointOnSegment, pointInRotatedRect } from './geometry';
 
 export const FUEL_CAPACITY = 100;
-export const FULL_TANK_RANGE_WORLD_UNITS = 120_000;
+export const FULL_TANK_RANGE_WORLD_UNITS = 800_000;
 export const FUEL_PER_WORLD_UNIT = FUEL_CAPACITY / FULL_TANK_RANGE_WORLD_UNITS;
 export const FULL_TANK_PRICE = 70;
 export const FUEL_FULL_PERFORMANCE_THRESHOLD = 60;

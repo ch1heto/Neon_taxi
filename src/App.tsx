@@ -16,6 +16,7 @@ import { GameEngine } from './game/GameEngine';
 import { PlayerSaveData, Order } from './types/game';
 import { AudioEngine } from './game/AudioEngine';
 import { CAR_SKINS } from './game/Skins';
+import { MAZDA_RX7_FD_TEST_DRIVE_ID, MAZDA_RX7_FD_TEST_DRIVE_SKIN } from './game/ExperimentalCars';
 import { closestPointOnSegment } from './game/geometry';
 
 export default function App() {
@@ -214,6 +215,10 @@ export default function App() {
     }
   };
 
+  const testDriveSkin = testDriveSkinId === MAZDA_RX7_FD_TEST_DRIVE_ID
+    ? MAZDA_RX7_FD_TEST_DRIVE_SKIN
+    : CAR_SKINS.find(skin => skin.id === testDriveSkinId);
+
   if (!isLoaded) {
     return (
       <div className="w-full h-full flex flex-col items-center justify-center bg-[#070a14] text-cyan-400 font-cyber p-4 text-center">
@@ -256,8 +261,8 @@ export default function App() {
         saveData={saveData}
       />
 
-      {testDriveSkinId && <TestDrive
-        skin={CAR_SKINS.find(skin => skin.id === testDriveSkinId)!}
+      {testDriveSkinId && testDriveSkin && <TestDrive
+        skin={testDriveSkin}
         onExit={() => { setTestDriveSkinId(null); setIsShopOpen(true); }}
       />}
 

@@ -1,4 +1,5 @@
 import { CarSkin } from '../types/game';
+import './CarVisualRenderers';
 
 export const CAR_SKINS: CarSkin[] = [
   {
@@ -97,6 +98,30 @@ export const CAR_SKINS: CarSkin[] = [
     dashCooldown: 3.35,
     speedBonus: 102,
     handlingBonus: 0.18,
+  },
+  {
+    id: 'skyline-r34',
+    name: 'Nissan Skyline GT-R R34',
+    modelType: 'skyline-r34',
+    description: 'Легендарное JDM-купе с серебристым кузовом, двойными синими полосами и большим GT-антикрылом.',
+    primaryColor: '#A9BCD0',
+    secondaryColor: '#0B4EDB',
+    glowColor: 'rgba(0, 168, 255, 0.48)',
+    trailColor: 'rgba(0, 168, 255, 0.46)',
+    length: 52,
+    width: 28,
+    price: 12000,
+    requiredOrders: 48,
+    maxSpeed: 340,
+    acceleration: 380,
+    braking: 620,
+    steering: 3.2,
+    grip: 0.86,
+    durability: 1,
+    dashPower: 340,
+    dashCooldown: 4.2,
+    speedBonus: 0,
+    handlingBonus: 0,
   },
   {
     id: 'aerocar',

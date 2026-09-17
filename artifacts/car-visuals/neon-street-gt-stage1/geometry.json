@@ -1,0 +1,66 @@
+{
+  "model": "Neon Street GT",
+  "stage": "reference-to-blueprint",
+  "orientation": {
+    "front": "+X",
+    "normalized_bounds": {
+      "x": [-51, 51],
+      "y": [-25, 25]
+    }
+  },
+  "proportions": {
+    "overall_length": 102,
+    "overall_width": 50,
+    "length_to_width": 2.04,
+    "shape_reference_length_to_width": 2.139,
+    "wheelbase": 60,
+    "wheelbase_percent": 58.8,
+    "hood_percent": 30,
+    "cabin_percent": 52,
+    "rear_deck_percent": 18
+  },
+  "anchors": {
+    "rear_tip": [-50, 0],
+    "front_tip": [51, 0],
+    "rear_axle": [-29.5, 0],
+    "front_axle": [30.5, 0],
+    "trunk_range_x": [-50, -33],
+    "rear_glass_range_x": [-33, -21],
+    "roof_range_x": [-21, 4],
+    "windshield_range_x": [4, 20],
+    "hood_range_x": [20, 50],
+    "spoiler_axis_x": -47.5,
+    "body_half_width": 21.5,
+    "arch_half_width": 23.5
+  },
+  "silhouette_top_edge": [
+    [-50, -12.5],
+    [-49, -16.5],
+    [-42, -20],
+    [-36, -21.5],
+    [-34, -23],
+    [-29.5, -24],
+    [-25, -23.5],
+    [-20, -21.5],
+    [15, -21.5],
+    [23, -22],
+    [27, -23.8],
+    [34, -23.8],
+    [41, -21.5],
+    [47, -18],
+    [50, -12],
+    [51, -7],
+    [51, 0]
+  ],
+  "colors": {
+    "primary": "#A9BCD0",
+    "primary_highlight": "#E4EDF5",
+    "secondary": "#0B4EDB",
+    "secondary_bright": "#1373FF",
+    "glow": "#00A8FF",
+    "glass": "#10283E",
+    "tire": "#07101A",
+    "headlight": "#CFFBFF",
+    "taillight": "#FF314D"
+  }
+}

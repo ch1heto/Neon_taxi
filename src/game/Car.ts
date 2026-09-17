@@ -495,6 +495,21 @@ export class Car {
     ctx.restore();
   }
 
+  private static readonly visualRenderers = new Map<CarSkin['modelType'], (
+    ctx: CanvasRenderingContext2D,
+    length: number,
+    width: number,
+    skin: CarSkin,
+  ) => void>();
+
+  /** Registers a model-specific body renderer without changing the legacy fallback path. */
+  public static registerVisualRenderer(
+    modelType: CarSkin['modelType'],
+    renderer: (ctx: CanvasRenderingContext2D, length: number, width: number, skin: CarSkin) => void,
+  ) {
+    Car.visualRenderers.set(modelType, renderer);
+  }
+
   /** Статический метод для отрисовки любой модели (используется и в игре, и на подиуме в Гараже) */
   public static drawCarDetailed(
     ctx: CanvasRenderingContext2D,
@@ -530,26 +545,29 @@ export class Car {
       ctx.fill();
     }
 
-    // Отрисовка колес
-    Car.renderWheels(ctx, L, W, skin.modelType);
-
-    switch (skin.modelType) {
-      case 'sport':
-        Car.renderSportCoupe(ctx, L, W, skin);
-        break;
-      case 'suv':
-        Car.renderTitanSUV(ctx, L, W, skin);
-        break;
-      case 'hyper':
-        Car.renderHypercar(ctx, L, W, skin);
-        break;
-      case 'aerocar':
-        Car.renderAerocar(ctx, L, W, skin);
-        break;
-      case 'sedan':
-      default:
-        Car.renderCityCruiser(ctx, L, W, skin);
-        break;
+    const customRenderer = Car.visualRenderers.get(skin.modelType);
+    if (customRenderer) {
+      customRenderer(ctx, L, W, skin);
+    } else {
+      Car.renderWheels(ctx, L, W, skin.modelType);
+      switch (skin.modelType) {
+        case 'sport':
+          Car.renderSportCoupe(ctx, L, W, skin);
+          break;
+        case 'suv':
+          Car.renderTitanSUV(ctx, L, W, skin);
+          break;
+        case 'hyper':
+          Car.renderHypercar(ctx, L, W, skin);
+          break;
+        case 'aerocar':
+          Car.renderAerocar(ctx, L, W, skin);
+          break;
+        case 'sedan':
+        default:
+          Car.renderCityCruiser(ctx, L, W, skin);
+          break;
+      }
     }
 
     ctx.restore();

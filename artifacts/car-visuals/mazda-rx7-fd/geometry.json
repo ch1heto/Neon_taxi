@@ -1,0 +1,44 @@
+{
+  "model": "Mazda RX-7 FD",
+  "front": "+X",
+  "normalizedBounds": { "xMin": -50, "xMax": 50, "yMin": -25, "yMax": 25 },
+  "pivot": [0, 0],
+  "axles": { "rearX": -30.5, "frontX": 30.5, "wheelbasePercent": 61 },
+  "stations": {
+    "rearWingX": -48,
+    "rearDeck": [-48, -31],
+    "rearGlass": [-32, -20],
+    "roof": [-20, 4],
+    "windshield": [3, 18],
+    "hood": [18, 49]
+  },
+  "proportions": {
+    "visibleRatio": 1.96,
+    "bodyLength": 100,
+    "bodyWidth": 49,
+    "physicalLength": 56,
+    "physicalWidth": 30
+  },
+  "colors": {
+    "primary": "#C9152D",
+    "primaryHighlight": "#FF4A55",
+    "primaryShadow": "#720918",
+    "secondary": "#171820",
+    "glass": "#142532",
+    "tire": "#07090D",
+    "headlight": "#E9FDFF",
+    "taillight": "#FF2447",
+    "glow": "#FF315F"
+  },
+  "silhouetteTopEdge": [
+    [-49, -11], [-48, -15], [-44, -18], [-38, -20], [-35, -22.5],
+    [-30.5, -24.5], [-26, -23.8], [-22, -21.4], [17, -21], [22, -22.3],
+    [26, -24], [31, -24.5], [36, -23.6], [42, -21], [47, -17], [49.5, -11], [50, 0]
+  ],
+  "identityAt64px": [
+    "compact dark cabin",
+    "long red hood with two broad black vent zones",
+    "wide black rear wing and twin red tail signature",
+    "slender white-cyan headlights"
+  ]
+}

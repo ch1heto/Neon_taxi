@@ -1,0 +1,9 @@
+interface:
+  display_name: "Car Visual Converter"
+  short_description: "Top-down car art to safe Canvas renderer"
+  brand_color: "#22D3EE"
+  default_prompt: "Use $car-visual-converter to turn my top-down car reference into a Neon Taxi Canvas renderer without changing physics."
+
+policy:
+  allow_implicit_invocation: true
+
