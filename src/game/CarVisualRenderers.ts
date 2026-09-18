@@ -1,6 +1,12 @@
 import { Car } from './Car';
-import { renderNeonStreetGT as renderSkylineR34 } from './carVisuals/NeonStreetGT';
-import { renderMazdaRX7FD } from './carVisuals/MazdaRX7FD';
+import { CAR_CATALOG } from './CarCatalog';
+import { preloadSvgCarVisual } from './carVisuals/SvgCarRenderer';
 
-Car.registerVisualRenderer('skyline-r34', renderSkylineR34);
-Car.registerVisualRenderer('mazda-rx7-fd', renderMazdaRX7FD);
+for (const entry of CAR_CATALOG) {
+  if (entry.renderer.draw) {
+    Car.registerVisualRenderer(entry.modelType, entry.renderer.draw, {
+      renderDashAfterimage: entry.renderer.type === 'svg',
+    });
+  }
+  if (entry.renderer.type === 'svg') preloadSvgCarVisual(entry.renderer.assetUrl);
+}

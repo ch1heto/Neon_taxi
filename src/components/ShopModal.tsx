@@ -5,7 +5,12 @@ import { CAR_SKINS, getUpgradeCost } from '../game/Skins';
 import { GameEngine } from '../game/GameEngine';
 import { AudioEngine } from '../game/AudioEngine';
 import { CarPreviewCanvas } from './CarPreviewCanvas';
-import { MAZDA_RX7_FD_TEST_DRIVE_SKIN } from '../game/ExperimentalCars';
+import { EXPERIMENTAL_CAR_CATALOG, getCatalogCarSkin, getCarCatalogEntry } from '../game/CarCatalog';
+import { calculateMaxSpeedForLevel } from '../game/Car';
+import { speedToKmh } from '../game/VehicleMetrics';
+import { CAR_LIFECYCLE_DEV_ENDPOINT } from '../game/carLifecycleEndpoint';
+
+type LifecycleDraft = { price: number; requiredOrders: number };
 
 interface ShopModalProps {
   isOpen: boolean;
@@ -26,6 +31,15 @@ export function ShopModal({
   const [carFilter, setCarFilter] = useState<'all' | 'unlocked' | 'locked'>('all');
   const [purchaseMessage, setPurchaseMessage] = useState('');
   const [isPurchasing, setIsPurchasing] = useState(false);
+  const [lifecycleDrafts, setLifecycleDrafts] = useState<Record<string, LifecycleDraft>>(() =>
+    Object.fromEntries(EXPERIMENTAL_CAR_CATALOG.map(entry => [entry.id, {
+      price: entry.price,
+      requiredOrders: entry.requiredOrders,
+    }])));
+  const [lifecycleBusyId, setLifecycleBusyId] = useState<string | null>(null);
+
+  const shopSkins = CAR_SKINS;
+  const unlockedShopCount = saveData.unlockedSkinIds.filter(id => shopSkins.some(skin => skin.id === id)).length;
 
   // Предпросмотр выбранной машины (по умолчанию текущая выбранная)
   const [previewSkinId, setPreviewSkinId] = useState<string>(saveData.selectedSkinId || 'cruiser');
@@ -33,12 +47,15 @@ export function ShopModal({
   if (!isOpen) return null;
 
   const currentPreviewSkin =
-    CAR_SKINS.find(s => s.id === previewSkinId) ||
-    CAR_SKINS.find(s => s.id === saveData.selectedSkinId) ||
-    CAR_SKINS[0];
+    shopSkins.find(s => s.id === previewSkinId) ||
+    shopSkins.find(s => s.id === saveData.selectedSkinId) ||
+    shopSkins[0];
 
   const isPreviewUnlocked = saveData.unlockedSkinIds.includes(currentPreviewSkin.id);
   const isPreviewSelected = saveData.selectedSkinId === currentPreviewSkin.id;
+  const currentPreviewCatalogEntry = getCarCatalogEntry(currentPreviewSkin.id);
+  const baseMaxSpeedKmh = speedToKmh(currentPreviewSkin.maxSpeed);
+  const levelFiveMaxSpeedKmh = speedToKmh(calculateMaxSpeedForLevel(currentPreviewSkin.maxSpeed, 5));
 
   const handleUpgrade = (type: 'speed' | 'handling' | 'dash') => {
     if (!engine) return;
@@ -79,6 +96,48 @@ export function ShopModal({
     }
   };
 
+  const updateLifecycleDraft = (id: string, patch: Partial<LifecycleDraft>) => {
+    if (!import.meta.env.DEV) return;
+    setLifecycleDrafts(current => ({ ...current, [id]: { ...current[id], ...patch } }));
+  };
+
+  const writeLifecycle = async (
+    id: string,
+    status: 'experimental' | 'production',
+    commerce: LifecycleDraft,
+  ) => {
+    if (!import.meta.env.DEV) return;
+    setLifecycleBusyId(id);
+    setPurchaseMessage('');
+    try {
+      const response = await fetch(CAR_LIFECYCLE_DEV_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id,
+          status,
+          price: Math.max(0, Math.round(commerce.price)),
+          requiredOrders: Math.max(0, Math.round(commerce.requiredOrders)),
+        }),
+      });
+      const payload = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(payload.error ?? 'Lifecycle update failed');
+      window.location.reload();
+    } catch (error) {
+      setPurchaseMessage(error instanceof Error ? error.message : 'Не удалось обновить lifecycle config');
+      setLifecycleBusyId(null);
+    }
+  };
+
+  const demoteFromShop = async () => {
+    if (!import.meta.env.DEV || !currentPreviewCatalogEntry || currentPreviewCatalogEntry.id === 'cruiser') return;
+    if (!window.confirm(`Вернуть ${currentPreviewCatalogEntry.name} в Test Drive?`)) return;
+    await writeLifecycle(currentPreviewCatalogEntry.id, 'experimental', {
+      price: currentPreviewCatalogEntry.price,
+      requiredOrders: currentPreviewCatalogEntry.requiredOrders,
+    });
+  };
+
   const renderLevelDots = (level: number) => {
     return (
       <div className="flex gap-1.5 mt-1.5">
@@ -94,7 +153,7 @@ export function ShopModal({
     );
   };
 
-  const filteredSkins = CAR_SKINS.filter(s => {
+  const filteredSkins = shopSkins.filter(s => {
     const isUnlocked = saveData.unlockedSkinIds.includes(s.id);
     if (carFilter === 'unlocked') return isUnlocked;
     if (carFilter === 'locked') return !isUnlocked;
@@ -145,7 +204,7 @@ export function ShopModal({
             }`}
           >
             <CarIcon className="w-4 h-4" />
-            АВТОМОБИЛИ ({saveData.unlockedSkinIds.length}/{CAR_SKINS.length})
+            АВТОМОБИЛИ ({unlockedShopCount}/{shopSkins.length})
           </button>
           <button
             onClick={() => setActiveTab('upgrades')}
@@ -188,13 +247,13 @@ export function ShopModal({
                 <div className="space-y-2 bg-slate-900/80 p-3 rounded-xl border border-slate-800">
                   <div>
                     <div className="flex justify-between text-[11px] text-slate-400 mb-1">
-                      <span>Скорость</span>
-                      <span className="font-bold text-cyan-300">+{currentPreviewSkin.speedBonus} км/ч</span>
+                      <span>Базовая макс. скорость</span>
+                      <span className="font-bold text-cyan-300">{baseMaxSpeedKmh} км/ч · LV5 {levelFiveMaxSpeedKmh}</span>
                     </div>
                     <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
                       <div
                         className="bg-cyan-400 h-full rounded-full transition-all"
-                        style={{ width: `${Math.min(100, 45 + (currentPreviewSkin.speedBonus / 100) * 55)}%` }}
+                        style={{ width: `${Math.min(100, baseMaxSpeedKmh / 180 * 100)}%` }}
                       />
                     </div>
                   </div>
@@ -262,33 +321,75 @@ export function ShopModal({
                   <button id="garage-test-drive" onClick={() => onTestDrive(currentPreviewSkin)} className="w-full mt-2 py-2.5 px-4 rounded-xl bg-violet-500 hover:bg-violet-400 text-white font-bold text-xs transition-colors shadow-lg shadow-violet-500/20">
                     ТЕСТ-ДРАЙВ · {currentPreviewSkin.name.toUpperCase()}
                   </button>
+                  {import.meta.env.DEV && currentPreviewCatalogEntry?.status === 'production' && currentPreviewCatalogEntry.id !== 'cruiser' && (
+                    <button data-dev-car-demote disabled={lifecycleBusyId === currentPreviewCatalogEntry.id}
+                      onClick={demoteFromShop}
+                      className="w-full mt-2 py-2 px-4 rounded-xl border border-rose-500/45 bg-rose-950/30 hover:bg-rose-900/40 disabled:opacity-50 text-rose-200 font-bold text-[10px] transition-colors">
+                      ВЕРНУТЬ В TEST DRIVE
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
 
-            {/* Test-only vehicle: deliberately outside CAR_SKINS and every commerce/ownership path. */}
-            <div id="experimental-mazda-rx7-fd" className="bg-rose-950/25 border border-rose-500/35 rounded-2xl p-4 flex flex-col sm:flex-row items-center gap-4">
-              <div className="w-full sm:w-2/5 shrink-0">
-                <CarPreviewCanvas skin={MAZDA_RX7_FD_TEST_DRIVE_SKIN} />
-              </div>
-              <div className="w-full sm:w-3/5">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[10px] font-black tracking-widest px-2 py-1 rounded bg-rose-500 text-white">EXPERIMENTAL</span>
-                  <span className="text-[10px] font-bold tracking-widest px-2 py-1 rounded bg-slate-800 text-rose-200 border border-rose-500/30">TEST VEHICLE</span>
+            {/* Experimental entries stay Test Drive-only until their source lifecycle status is published. */}
+            {EXPERIMENTAL_CAR_CATALOG.map(entry => {
+              const skin = getCatalogCarSkin(entry.id)!;
+              const lifecycleDraft = lifecycleDrafts[entry.id] ?? {
+                price: entry.price,
+                requiredOrders: entry.requiredOrders,
+              };
+              return (
+                <div key={entry.id} id={`experimental-${entry.id}`} className="bg-rose-950/25 border border-rose-500/35 rounded-2xl p-4 flex flex-col sm:flex-row items-center gap-4">
+                  <div className="w-full sm:w-2/5 shrink-0">
+                    <CarPreviewCanvas skin={skin} />
+                  </div>
+                  <div className="w-full sm:w-3/5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[10px] font-black tracking-widest px-2 py-1 rounded bg-rose-500 text-white">EXPERIMENTAL</span>
+                      <span className="text-[10px] font-bold tracking-widest px-2 py-1 rounded bg-slate-800 text-rose-200 border border-rose-500/30">TEST VEHICLE</span>
+                    </div>
+                    <h3 className="mt-2 text-lg font-bold text-white">{entry.name.toUpperCase()}</h3>
+                    <p className="mt-1 text-xs leading-relaxed text-slate-300">
+                      Временные уровни Speed / Handling / Dash. Не продаётся, не выбирается для карьеры и не сохраняется.
+                    </p>
+                    <button
+                      id={`${entry.id}-test-drive`}
+                      onClick={() => onTestDrive(skin)}
+                      className="w-full mt-3 py-2.5 px-4 rounded-xl bg-rose-500 hover:bg-rose-400 text-white font-bold text-xs transition-colors shadow-lg shadow-rose-500/20"
+                    >
+                      ТЕСТ-ДРАЙВ · {entry.name.toUpperCase()}
+                    </button>
+
+                    {import.meta.env.DEV && (
+                      <div data-dev-car-management className="mt-3 rounded-xl border border-amber-400/35 bg-amber-950/20 p-3">
+                        <div className="text-[10px] font-black tracking-[0.16em] text-amber-300">DEV · SOURCE PROMOTION</div>
+                        <div className="grid grid-cols-2 gap-2 mt-2">
+                          <label className="text-[10px] text-slate-400">
+                            PRICE
+                            <input type="number" min="0" step="1" value={lifecycleDraft.price}
+                              onChange={event => updateLifecycleDraft(entry.id, { price: Number(event.target.value) })}
+                              className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-white" />
+                          </label>
+                          <label className="text-[10px] text-slate-400">
+                            REQUIRED ORDERS
+                            <input type="number" min="0" step="1" value={lifecycleDraft.requiredOrders}
+                              onChange={event => updateLifecycleDraft(entry.id, { requiredOrders: Number(event.target.value) })}
+                              className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-white" />
+                          </label>
+                        </div>
+                        <button disabled={lifecycleBusyId === entry.id}
+                          onClick={() => writeLifecycle(entry.id, 'production', lifecycleDraft)}
+                          className="w-full mt-2 rounded-lg bg-amber-400 px-2 py-2 text-[10px] font-black text-slate-950 hover:bg-amber-300 disabled:opacity-50">
+                          {lifecycleBusyId === entry.id ? 'ЗАПИСЬ SOURCE CONFIG…' : 'ОПУБЛИКОВАТЬ В МАГАЗИН'}
+                        </button>
+                        <p className="mt-2 text-[10px] text-slate-500">Меняет только carLifecycle.json; после reload включается обычный purchase/save flow.</p>
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <h3 className="mt-2 text-lg font-bold text-white">MAZDA RX-7 FD</h3>
-                <p className="mt-1 text-xs leading-relaxed text-slate-300">
-                  Отдельный тестовый профиль с временными уровнями Speed / Handling / Dash. Не продаётся, не выбирается для карьеры и не сохраняется.
-                </p>
-                <button
-                  id="experimental-mazda-test-drive"
-                  onClick={() => onTestDrive(MAZDA_RX7_FD_TEST_DRIVE_SKIN)}
-                  className="w-full mt-3 py-2.5 px-4 rounded-xl bg-rose-500 hover:bg-rose-400 text-white font-bold text-xs transition-colors shadow-lg shadow-rose-500/20"
-                >
-                  ТЕСТ-ДРАЙВ · MAZDA RX-7 FD
-                </button>
-              </div>
-            </div>
+              );
+            })}
 
             {/* Фильтры категорий */}
             <div className="flex gap-2">
@@ -300,7 +401,7 @@ export function ShopModal({
                     : 'bg-slate-800/60 text-slate-400 hover:text-slate-200'
                 }`}
               >
-                Все модели ({CAR_SKINS.length})
+                Все модели ({shopSkins.length})
               </button>
               <button
                 onClick={() => setCarFilter('unlocked')}
@@ -310,7 +411,7 @@ export function ShopModal({
                     : 'bg-slate-800/60 text-slate-400 hover:text-slate-200'
                 }`}
               >
-                Доступные ({saveData.unlockedSkinIds.length})
+                Доступные ({unlockedShopCount})
               </button>
               <button
                 onClick={() => setCarFilter('locked')}
@@ -320,7 +421,7 @@ export function ShopModal({
                     : 'bg-slate-800/60 text-slate-400 hover:text-slate-200'
                 }`}
               >
-                В автосалоне ({CAR_SKINS.length - saveData.unlockedSkinIds.length})
+                В автосалоне ({shopSkins.length - unlockedShopCount})
               </button>
             </div>
 

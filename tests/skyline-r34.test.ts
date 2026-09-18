@@ -100,14 +100,14 @@ test('Skyline Test Drive starts at 1/1/1 and supports all temporary upgrade leve
   assert.ok(session.car.dashSpeedBoost > baseline.dashPower);
 });
 
-test('promoted Skyline preserves the approved City Cruiser physics and collision baseline', () => {
+test('Skyline keeps the approved dimensions but owns a distinct high-performance tune', () => {
   const cruiser = CAR_SKINS.find(skin => skin.id === 'cruiser')!;
-  for (const field of [
-    'length', 'width', 'maxSpeed', 'acceleration', 'braking', 'steering', 'grip', 'durability',
-    'dashPower', 'dashCooldown', 'speedBonus', 'handlingBonus',
-  ] as const) {
-    assert.equal(skyline[field], cruiser[field], field);
-  }
+  assert.equal(skyline.length, cruiser.length);
+  assert.equal(skyline.width, cruiser.width);
+  assert.equal(skyline.maxSpeed, 455);
+  assert.ok(skyline.acceleration > cruiser.acceleration);
+  assert.ok(skyline.steering > cruiser.steering);
+  assert.ok(skyline.dashPower > cruiser.dashPower);
   assert.notEqual(skyline, cruiser);
 });
 
@@ -162,4 +162,3 @@ test('all five legacy models still fall back to their existing body renderers', 
     Object.assign(Car, originals);
   }
 });
-

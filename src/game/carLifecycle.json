@@ -1,0 +1,52 @@
+{
+  "cruiser": {
+    "status": "production",
+    "price": 0,
+    "requiredOrders": 0
+  },
+  "sport": {
+    "status": "production",
+    "price": 1000,
+    "requiredOrders": 8
+  },
+  "suv": {
+    "status": "production",
+    "price": 3000,
+    "requiredOrders": 20
+  },
+  "hyper": {
+    "status": "production",
+    "price": 6500,
+    "requiredOrders": 35
+  },
+  "skyline-r34": {
+    "status": "production",
+    "price": 12000,
+    "requiredOrders": 48
+  },
+  "aerocar": {
+    "status": "production",
+    "price": 12000,
+    "requiredOrders": 50
+  },
+  "mazda-rx7-fd": {
+    "status": "production",
+    "price": 1,
+    "requiredOrders": 1
+  },
+  "city-cruiser-taxi-v2": {
+    "status": "experimental",
+    "price": 1500,
+    "requiredOrders": 0
+  },
+  "mercedes-amg": {
+    "status": "production",
+    "price": 1,
+    "requiredOrders": 1
+  },
+  "lamborghini": {
+    "status": "production",
+    "price": 1,
+    "requiredOrders": 1
+  }
+}

@@ -14,6 +14,10 @@ export function clampUpgradeLevel(value: unknown, fallback = 1): number {
   return Math.max(1, Math.min(5, Math.round(value)));
 }
 
+export function calculateMaxSpeedForLevel(baseMaxSpeed: number, requestedLevel: number): number {
+  return baseMaxSpeed * (1 + (clampUpgradeLevel(requestedLevel) - 1) * 0.06);
+}
+
 export type DrivingSurface = Pick<CityMap,
   'width' | 'height' | 'checkVehicleCollision' | 'checkIslandBoundary' | 'checkTrafficCollision'>;
 
@@ -91,7 +95,7 @@ export class Car {
     const speedLevel = clampUpgradeLevel(stats.speedLevel);
     const handlingLevel = clampUpgradeLevel(stats.handlingLevel);
     const dashLevel = clampUpgradeLevel(stats.dashLevel);
-    const speedMultiplier = 1 + (speedLevel - 1) * 0.06;
+    const speedMultiplier = calculateMaxSpeedForLevel(1, speedLevel);
     const handlingMultiplier = 1 + (handlingLevel - 1) * 0.045;
     const dashMultiplier = 1 + (dashLevel - 1) * 0.055;
     this.maxSpeed = model.maxSpeed * speedMultiplier;
@@ -449,9 +453,14 @@ export class Car {
       ctx.translate(ghost.x, ghost.y);
       ctx.rotate(ghost.angle);
       ctx.globalAlpha = ghost.alpha * 0.35;
-      ctx.strokeStyle = ghost.color;
-      ctx.lineWidth = 2;
-      ctx.strokeRect(-L / 2, -W / 2, L, W);
+      const registeredVisual = Car.visualRenderers.get(skin.modelType);
+      if (registeredVisual?.renderDashAfterimage) {
+        registeredVisual.draw(ctx, L, W, skin);
+      } else {
+        ctx.strokeStyle = ghost.color;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(-L / 2, -W / 2, L, W);
+      }
       ctx.restore();
     }
     ctx.globalAlpha = 1.0;
@@ -495,19 +504,21 @@ export class Car {
     ctx.restore();
   }
 
-  private static readonly visualRenderers = new Map<CarSkin['modelType'], (
-    ctx: CanvasRenderingContext2D,
-    length: number,
-    width: number,
-    skin: CarSkin,
-  ) => void>();
+  private static readonly visualRenderers = new Map<CarSkin['modelType'], {
+    draw: (ctx: CanvasRenderingContext2D, length: number, width: number, skin: CarSkin) => void;
+    renderDashAfterimage: boolean;
+  }>();
 
   /** Registers a model-specific body renderer without changing the legacy fallback path. */
   public static registerVisualRenderer(
     modelType: CarSkin['modelType'],
     renderer: (ctx: CanvasRenderingContext2D, length: number, width: number, skin: CarSkin) => void,
+    options: { renderDashAfterimage?: boolean } = {},
   ) {
-    Car.visualRenderers.set(modelType, renderer);
+    Car.visualRenderers.set(modelType, {
+      draw: renderer,
+      renderDashAfterimage: options.renderDashAfterimage === true,
+    });
   }
 
   /** Статический метод для отрисовки любой модели (используется и в игре, и на подиуме в Гараже) */
@@ -545,9 +556,15 @@ export class Car {
       ctx.fill();
     }
 
+    Car.drawCarBody(ctx, L, W, skin);
+
+    ctx.restore();
+  }
+
+  private static drawCarBody(ctx: CanvasRenderingContext2D, L: number, W: number, skin: CarSkin) {
     const customRenderer = Car.visualRenderers.get(skin.modelType);
     if (customRenderer) {
-      customRenderer(ctx, L, W, skin);
+      customRenderer.draw(ctx, L, W, skin);
     } else {
       Car.renderWheels(ctx, L, W, skin.modelType);
       switch (skin.modelType) {
@@ -569,8 +586,6 @@ export class Car {
           break;
       }
     }
-
-    ctx.restore();
   }
 
   /** Отрисовка 4 колес */

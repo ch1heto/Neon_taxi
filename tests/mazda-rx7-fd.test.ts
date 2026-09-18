@@ -54,14 +54,13 @@ test('Mazda cannot become owned, selected, or persisted through save migration',
   assert.deepEqual(migrated.unlockedSkinIds, ['cruiser']);
 });
 
-test('Mazda owns an independent exact copy of the Cyber GT physics baseline', () => {
+test('Mazda has its own lightweight tune while preserving the intended sport speed tier', () => {
   const cyberGT = CAR_SKINS.find(skin => skin.id === 'sport')!;
-  for (const field of [
-    'length', 'width', 'maxSpeed', 'acceleration', 'braking', 'steering', 'grip', 'durability',
-    'dashPower', 'dashCooldown', 'speedBonus', 'handlingBonus',
-  ] as const) {
-    assert.equal(MAZDA_RX7_FD_TEST_DRIVE_PROFILE[field], cyberGT[field], field);
-  }
+  assert.equal(MAZDA_RX7_FD_TEST_DRIVE_PROFILE.maxSpeed, cyberGT.maxSpeed);
+  assert.ok(MAZDA_RX7_FD_TEST_DRIVE_PROFILE.acceleration > cyberGT.acceleration);
+  assert.ok(MAZDA_RX7_FD_TEST_DRIVE_PROFILE.steering > cyberGT.steering);
+  assert.ok(MAZDA_RX7_FD_TEST_DRIVE_PROFILE.grip > cyberGT.grip);
+  assert.notEqual(MAZDA_RX7_FD_TEST_DRIVE_PROFILE.dashPower, cyberGT.dashPower);
   assert.notEqual(MAZDA_RX7_FD_TEST_DRIVE_PROFILE, cyberGT);
   assert.equal(Object.isFrozen(MAZDA_RX7_FD_TEST_DRIVE_PROFILE), true);
 });

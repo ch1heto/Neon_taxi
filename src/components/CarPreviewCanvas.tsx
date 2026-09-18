@@ -87,7 +87,8 @@ export const CarPreviewCanvas: React.FC<CarPreviewCanvasProps> = ({ skin }) => {
       ctx.translate(cx, cy + bobY);
 
       // Отрисовка детализированной модели машины (масштаб x2.3)
-      Car.drawCarDetailed(ctx, skin, 2.3, angleRef.current, true);
+      // The podium already supplies depth; the legacy body-sized shadow looked like a rotating black card.
+      Car.drawCarDetailed(ctx, skin, 2.3, angleRef.current, false);
 
       ctx.restore();
 

@@ -94,8 +94,11 @@ function getLocalStorageKey(): string {
     ? QA_STORAGE_KEY : LOCAL_STORAGE_KEY;
 }
 
-export function migrateSaveData(data: Partial<PlayerSaveData> | null | undefined): PlayerSaveData {
-  const validSkinIds = new Set(CAR_SKINS.map(skin => skin.id));
+export function migrateSaveData(
+  data: Partial<PlayerSaveData> | null | undefined,
+  availableSkins = CAR_SKINS,
+): PlayerSaveData {
+  const validSkinIds = new Set(availableSkins.map(skin => skin.id));
   const source = data ?? {};
   const selectedSkinId = typeof source.selectedSkinId === 'string' && validSkinIds.has(source.selectedSkinId)
     ? source.selectedSkinId

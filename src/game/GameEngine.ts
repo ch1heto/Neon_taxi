@@ -50,8 +50,12 @@ export type PurchaseResult =
   | { status: 'invalidSkin' }
   | { status: 'saveError' };
 
-export function createSkinPurchase(saveData: PlayerSaveData, skinId: string): PurchaseResult {
-  const skin = CAR_SKINS.find(candidate => candidate.id === skinId);
+export function createSkinPurchase(
+  saveData: PlayerSaveData,
+  skinId: string,
+  availableSkins: readonly CarSkin[] = CAR_SKINS,
+): PurchaseResult {
+  const skin = availableSkins.find(candidate => candidate.id === skinId);
   if (!skin) return { status: 'invalidSkin' };
   const unlocked = saveData.unlockedSkinIds.includes(skinId);
   if (!unlocked && saveData.ordersCompleted < skin.requiredOrders) {

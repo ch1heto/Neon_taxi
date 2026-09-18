@@ -15,8 +15,7 @@ import { YandexAPI, DEFAULT_SAVE_DATA } from './services/YandexAPI';
 import { GameEngine } from './game/GameEngine';
 import { PlayerSaveData, Order } from './types/game';
 import { AudioEngine } from './game/AudioEngine';
-import { CAR_SKINS } from './game/Skins';
-import { MAZDA_RX7_FD_TEST_DRIVE_ID, MAZDA_RX7_FD_TEST_DRIVE_SKIN } from './game/ExperimentalCars';
+import { TEST_DRIVE_CAR_SKINS } from './game/CarCatalog';
 import { closestPointOnSegment } from './game/geometry';
 
 export default function App() {
@@ -215,9 +214,7 @@ export default function App() {
     }
   };
 
-  const testDriveSkin = testDriveSkinId === MAZDA_RX7_FD_TEST_DRIVE_ID
-    ? MAZDA_RX7_FD_TEST_DRIVE_SKIN
-    : CAR_SKINS.find(skin => skin.id === testDriveSkinId);
+  const testDriveSkin = TEST_DRIVE_CAR_SKINS.find(skin => skin.id === testDriveSkinId);
 
   if (!isLoaded) {
     return (

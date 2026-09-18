@@ -18,7 +18,17 @@ export interface PlayerSaveData {
   };
 }
 
-export type CarModelType = 'sedan' | 'sport' | 'suv' | 'hyper' | 'aerocar' | 'skyline-r34' | 'mazda-rx7-fd';
+export type CarModelType =
+  | 'sedan'
+  | 'sport'
+  | 'suv'
+  | 'hyper'
+  | 'aerocar'
+  | 'skyline-r34'
+  | 'mazda-rx7-fd'
+  | 'city-cruiser-taxi-v2'
+  | 'mercedes-amg'
+  | 'lamborghini';
 
 export interface CarSkin {
   id: string;
