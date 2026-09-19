@@ -82,6 +82,9 @@ export const DEFAULT_SAVE_DATA: PlayerSaveData = {
   settings: {
     soundEnabled: true,
     musicEnabled: true,
+    masterVolume: 0.8,
+    engineVolume: 0.8,
+    musicVolume: 0.45,
   },
 };
 
@@ -106,6 +109,18 @@ export function migrateSaveData(
   const unlockedSkinIds = Array.isArray(source.unlockedSkinIds)
     ? source.unlockedSkinIds.filter((id): id is string => typeof id === 'string' && validSkinIds.has(id))
     : [];
+  const sourceStats: Partial<PlayerSaveData['stats']> = source.stats && typeof source.stats === 'object'
+    ? source.stats : {};
+  const sourceSettings: Partial<PlayerSaveData['settings']> = source.settings && typeof source.settings === 'object'
+    ? source.settings : {};
+  const clampUpgradeLevel = (value: unknown): number => {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return 1;
+    return Math.max(1, Math.min(5, Math.floor(value)));
+  };
+  const clampVolume = (value: unknown, fallback: number): number => {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+    return Math.max(0, Math.min(1, value));
+  };
   if (!unlockedSkinIds.includes('cruiser')) unlockedSkinIds.unshift('cruiser');
   if (!unlockedSkinIds.includes(selectedSkinId)) unlockedSkinIds.push(selectedSkinId);
   return {
@@ -122,12 +137,18 @@ export function migrateSaveData(
     selectedSkinId,
     unlockedSkinIds: Array.from(new Set(unlockedSkinIds)),
     stats: {
-      ...DEFAULT_SAVE_DATA.stats,
-      ...(source.stats ?? {}),
+      speedLevel: clampUpgradeLevel(sourceStats.speedLevel),
+      handlingLevel: clampUpgradeLevel(sourceStats.handlingLevel),
+      dashLevel: clampUpgradeLevel(sourceStats.dashLevel),
     },
     settings: {
-      ...DEFAULT_SAVE_DATA.settings,
-      ...(source.settings ?? {}),
+      soundEnabled: typeof sourceSettings.soundEnabled === 'boolean'
+        ? sourceSettings.soundEnabled : DEFAULT_SAVE_DATA.settings.soundEnabled,
+      musicEnabled: typeof sourceSettings.musicEnabled === 'boolean'
+        ? sourceSettings.musicEnabled : DEFAULT_SAVE_DATA.settings.musicEnabled,
+      masterVolume: clampVolume(sourceSettings.masterVolume, DEFAULT_SAVE_DATA.settings.masterVolume),
+      engineVolume: clampVolume(sourceSettings.engineVolume, DEFAULT_SAVE_DATA.settings.engineVolume),
+      musicVolume: clampVolume(sourceSettings.musicVolume, DEFAULT_SAVE_DATA.settings.musicVolume),
     },
   };
 }
@@ -146,13 +167,49 @@ export function selectNewestSave(localData: Partial<PlayerSaveData> | null, clou
 
 export type AdStateListener = (isOpen: boolean, type: 'rewarded' | 'interstitial') => void;
 
+export const YANDEX_SDK_INIT_TIMEOUT_MS = 6_000;
+export const YANDEX_PLAYER_TIMEOUT_MS = 5_000;
+export const YANDEX_DATA_TIMEOUT_MS = 5_000;
+const INITIAL_RETRY_BACKOFF_MS = 750;
+const BACKGROUND_RECONNECT_DELAYS_MS = [2_000, 5_000, 10_000] as const;
+
 function withTimeout<T>(promise: Promise<T>, ms: number, timeoutMsg: string): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((_, reject) =>
-      setTimeout(() => reject(new Error(timeoutMsg)), ms)
-    ),
-  ]);
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(timeoutMsg)), ms);
+    promise.then(
+      value => { clearTimeout(timer); resolve(value); },
+      error => { clearTimeout(timer); reject(error); },
+    );
+  });
+}
+
+async function withRetry<T>(
+  operation: () => Promise<T>,
+  options: { attempts: number; timeoutMs: number; backoffMs: number; label: string },
+): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= options.attempts; attempt++) {
+    try {
+      return await withTimeout(operation(), options.timeoutMs, `${options.label} timed out`);
+    } catch (error) {
+      lastError = error;
+      if (attempt < options.attempts) {
+        await new Promise(resolve => setTimeout(resolve, options.backoffMs * attempt));
+      }
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(`${options.label} failed`);
+}
+
+/** Serializes async persistence operations even when an earlier task rejects. */
+export class SerializedSaveQueue {
+  private tail: Promise<void> = Promise.resolve();
+
+  public enqueue(task: () => Promise<void>): Promise<void> {
+    const queued = this.tail.then(task, task);
+    this.tail = queued.catch(() => {});
+    return queued;
+  }
 }
 
 export class YandexAPI {
@@ -164,10 +221,15 @@ export class YandexAPI {
   private adListeners: AdStateListener[] = [];
   private onPauseGameCallback: (() => void) | null = null;
   private onResumeGameCallback: (() => void) | null = null;
-  private saveQueue: Promise<void> = Promise.resolve();
+  private saveQueue = new SerializedSaveQueue();
   private latestRevision = 0;
   private loadingReadySent = false;
   private gameReady = false;
+  private reconnectAttempt = 0;
+  private reconnectTimer: number | null = null;
+  private connectionPromise: Promise<boolean> | null = null;
+  private playerConnectionListeners: Array<(playerId: string | null) => void> = [];
+  private recoveredDataListeners: Array<(data: PlayerSaveData) => void> = [];
 
   // Mock UI callback для визуализации рекламы в режиме тестирования
   private mockAdTrigger: ((type: 'rewarded' | 'interstitial', onRewarded?: () => void, onClose?: () => void, onError?: (err: unknown) => void) => void) | null = null;
@@ -211,8 +273,94 @@ export class YandexAPI {
   /**
    * Регистрация обработчика Mock-рекламы для визуализации в Dev-режиме
    */
-  public registerMockAdTrigger(trigger: (type: 'rewarded' | 'interstitial', onRewarded?: () => void, onClose?: () => void, onError?: (err: unknown) => void) => void) {
+  public registerMockAdTrigger(trigger: ((type: 'rewarded' | 'interstitial', onRewarded?: () => void, onClose?: () => void, onError?: (err: unknown) => void) => void) | null) {
     this.mockAdTrigger = trigger;
+  }
+
+  public onPlayerConnectionChange(listener: (playerId: string | null) => void): () => void {
+    this.playerConnectionListeners.push(listener);
+    return () => {
+      this.playerConnectionListeners = this.playerConnectionListeners.filter(candidate => candidate !== listener);
+    };
+  }
+
+  public onRecoveredPlayerData(listener: (data: PlayerSaveData) => void): () => void {
+    this.recoveredDataListeners.push(listener);
+    return () => {
+      this.recoveredDataListeners = this.recoveredDataListeners.filter(candidate => candidate !== listener);
+    };
+  }
+
+  public getPlayerUniqueId(): string | null {
+    if (!this.player) return null;
+    try {
+      const id = this.player.getUniqueID();
+      return typeof id === 'string' && id.trim().length > 0 ? id.trim() : null;
+    } catch (error) {
+      console.warn('[YandexAPI] Не удалось получить unique player ID:', error);
+      return null;
+    }
+  }
+
+  private notifyPlayerConnection(): void {
+    const playerId = this.getPlayerUniqueId();
+    this.playerConnectionListeners.forEach(listener => listener(playerId));
+  }
+
+  private async connectPlayer(attempts: number): Promise<boolean> {
+    if (!this.ysdk) return false;
+    try {
+      this.player = await withRetry(
+        () => this.ysdk!.getPlayer({ scopes: false }),
+        { attempts, timeoutMs: YANDEX_PLAYER_TIMEOUT_MS, backoffMs: INITIAL_RETRY_BACKOFF_MS, label: 'getPlayer' },
+      );
+      console.log('[YandexAPI] Игрок авторизован:', this.player.getMode());
+      this.notifyPlayerConnection();
+      return true;
+    } catch (error) {
+      this.player = null;
+      console.warn('[YandexAPI] Игрок пока недоступен, продолжаем в локальном режиме:', error);
+      this.notifyPlayerConnection();
+      return false;
+    }
+  }
+
+  private async establishConnection(attempts: number): Promise<boolean> {
+    if (this.connectionPromise) return this.connectionPromise;
+    this.connectionPromise = (async () => {
+      if (typeof window === 'undefined' || !window.YaGames) return false;
+      if (!this.ysdk) {
+        this.ysdk = await withRetry(
+          () => window.YaGames!.init(),
+          { attempts, timeoutMs: YANDEX_SDK_INIT_TIMEOUT_MS, backoffMs: INITIAL_RETRY_BACKOFF_MS, label: 'YaGames.init' },
+        );
+      }
+      this.isMockMode = false;
+      this.trySignalLoadingReady();
+      if (!this.player) await this.connectPlayer(attempts);
+      return true;
+    })().catch(error => {
+      console.warn('[YandexAPI] SDK connection attempt failed:', error);
+      return false;
+    }).finally(() => {
+      this.connectionPromise = null;
+    });
+    return this.connectionPromise;
+  }
+
+  private scheduleConnectionRecovery(): void {
+    if (this.reconnectTimer !== null || this.reconnectAttempt >= BACKGROUND_RECONNECT_DELAYS_MS.length ||
+        typeof window === 'undefined' || typeof window.setTimeout !== 'function') return;
+    const delay = BACKGROUND_RECONNECT_DELAYS_MS[this.reconnectAttempt++];
+    this.reconnectTimer = window.setTimeout(async () => {
+      this.reconnectTimer = null;
+      const hadPlayer = Boolean(this.player);
+      const sdkConnected = await this.establishConnection(1);
+      if (sdkConnected && this.player && !hadPlayer) {
+        await this.reconcileRecoveredCloudData();
+      }
+      if (!sdkConnected || !this.player) this.scheduleConnectionRecovery();
+    }, delay);
   }
 
   /**
@@ -227,40 +375,19 @@ export class YandexAPI {
     }
 
     try {
-      if (typeof window !== 'undefined' && window.YaGames) {
-        console.log('[YandexAPI] Попытка инициализации YaGames SDK (таймаут 1000мс)...');
-        // Защита от вечного ожидания: если игра открыта вне домена yandex.net,
-        // YaGames.init() ждет postMessage от хостового окна и никогда не резолвится.
-        this.ysdk = await withTimeout(
-          window.YaGames.init(),
-          1000,
-          'YaGames.init timed out (running outside Yandex Games iframe)'
-        );
-        this.isMockMode = false;
-
-        // Попытка инициализировать игрока с таймаутом
-        try {
-          this.player = await withTimeout(
-            this.ysdk.getPlayer({ scopes: false }),
-            800,
-            'getPlayer timed out'
-          );
-          console.log('[YandexAPI] Игрок авторизован:', this.player.getMode());
-        } catch (playerErr) {
-          console.warn('[YandexAPI] Игрок не авторизован (гостевой режим):', playerErr);
-        }
-
+      if (await this.establishConnection(2)) {
         this.isInitialized = true;
         this.trySignalLoadingReady();
         console.log('[YandexAPI] SDK успешно инициализирован в боевом режиме.');
+        if (!this.player) this.scheduleConnectionRecovery();
         return true;
-      } else {
-        throw new Error('YaGames script not available in window');
       }
+      throw new Error('YaGames script not available in window');
     } catch (error) {
-      console.warn('[YandexAPI] YaGames SDK недоступен, включен безопасный MOCK режим:', error);
+      console.warn('[YandexAPI] YaGames SDK пока недоступен, включен локальный fallback:', error);
       this.isMockMode = true;
       this.isInitialized = true;
+      this.scheduleConnectionRecovery();
       return true;
     }
   }
@@ -298,52 +425,75 @@ export class YandexAPI {
     );
   }
 
+  private async fetchCloudData(attempts: number): Promise<Partial<PlayerSaveData> | null> {
+    if (!this.player) return null;
+    try {
+      const data = await withRetry(
+        () => this.player!.getData(),
+        { attempts, timeoutMs: YANDEX_DATA_TIMEOUT_MS, backoffMs: INITIAL_RETRY_BACKOFF_MS, label: 'player.getData' },
+      );
+      return data && Object.keys(data).length > 0 ? data as Partial<PlayerSaveData> : null;
+    } catch (error) {
+      console.warn('[YandexAPI] Ошибка загрузки данных из Cloud:', error);
+      return null;
+    }
+  }
+
+  private readLocalData(): Partial<PlayerSaveData> | null {
+    try {
+      const raw = localStorage.getItem(getLocalStorageKey());
+      return raw ? JSON.parse(raw) as Partial<PlayerSaveData> : null;
+    } catch (error) {
+      console.warn('[YandexAPI] Ошибка чтения LocalStorage:', error);
+      return null;
+    }
+  }
+
+  private writeLocalData(data: PlayerSaveData): boolean {
+    try {
+      localStorage.setItem(getLocalStorageKey(), JSON.stringify(data));
+      return true;
+    } catch (error) {
+      console.warn('[YandexAPI] Ошибка записи в LocalStorage:', error);
+      return false;
+    }
+  }
+
+  private async reconcileRecoveredCloudData(): Promise<void> {
+    if (!this.player) return;
+    const localData = this.readLocalData();
+    const cloudData = await this.fetchCloudData(2);
+    const merged = selectNewestSave(localData, cloudData);
+    this.latestRevision = Math.max(this.latestRevision, merged.saveRevision);
+    this.writeLocalData(merged);
+    const cloudRevision = Number.isFinite(cloudData?.saveRevision) ? Number(cloudData?.saveRevision) : 0;
+    const cloudUpdatedAt = Number.isFinite(cloudData?.updatedAt) ? Number(cloudData?.updatedAt) : 0;
+    if (!cloudData || merged.saveRevision > cloudRevision ||
+        (merged.saveRevision === cloudRevision && merged.updatedAt > cloudUpdatedAt)) {
+      const player = this.player;
+      await this.saveQueue.enqueue(() => player.setData(merged as unknown as Record<string, unknown>, true))
+        .catch(error => console.warn('[YandexAPI] Recovered cloud sync failed:', error));
+    }
+    this.recoveredDataListeners.forEach(listener => listener(merged));
+  }
+
   /**
    * Загрузка прогресса: сначала проверяем Cloud, при ошибке/госте — LocalStorage
    */
   public async loadPlayerData(): Promise<PlayerSaveData> {
-    let cloudData: Partial<PlayerSaveData> | null = null;
-
-    if (this.player) {
-      try {
-        const data = await withTimeout(
-          this.player.getData(),
-          800,
-          'player.getData timed out'
-        );
-        if (data && Object.keys(data).length > 0) {
-          cloudData = data as Partial<PlayerSaveData>;
-          console.log('[YandexAPI] Данные успешно загружены из Yandex Cloud:', cloudData);
-        }
-      } catch (err) {
-        console.warn('[YandexAPI] Ошибка загрузки данных из Cloud:', err);
-      }
-    }
-
-    // Загрузка из LocalStorage
-    let localData: Partial<PlayerSaveData> | null = null;
-    try {
-      const raw = localStorage.getItem(getLocalStorageKey());
-      if (raw) {
-        localData = JSON.parse(raw);
-      }
-    } catch (e) {
-      console.warn('[YandexAPI] Ошибка чтения LocalStorage:', e);
-    }
+    const cloudData = await this.fetchCloudData(2);
+    if (cloudData) console.log('[YandexAPI] Данные успешно загружены из Yandex Cloud:', cloudData);
+    const localData = this.readLocalData();
 
     const merged = selectNewestSave(localData, cloudData);
     this.latestRevision = merged.saveRevision;
 
     // Синхронизируем локальный сторадж с объединенными данными
-    try {
-      localStorage.setItem(getLocalStorageKey(), JSON.stringify(merged));
-    } catch (e) {
-      console.warn('[YandexAPI] Ошибка записи в LocalStorage:', e);
-    }
+    this.writeLocalData(merged);
     if (this.player && localData && (!cloudData || merged.saveRevision > (cloudData.saveRevision ?? 0) ||
       (merged.saveRevision === (cloudData.saveRevision ?? 0) && merged.updatedAt > (cloudData.updatedAt ?? 0)))) {
       const player = this.player;
-      this.saveQueue = this.saveQueue.then(() => player.setData(merged as unknown as Record<string, unknown>, true))
+      void this.saveQueue.enqueue(() => player.setData(merged as unknown as Record<string, unknown>, true))
         .catch(error => console.warn('[YandexAPI] Cloud sync failed:', error));
     }
 
@@ -357,12 +507,7 @@ export class YandexAPI {
     const snapshot = migrateSaveData(data);
     this.latestRevision = Math.max(this.latestRevision, snapshot.saveRevision);
     let localSaved = false;
-    try {
-      localStorage.setItem(getLocalStorageKey(), JSON.stringify(snapshot));
-      localSaved = true;
-    } catch (e) {
-      console.error('[YandexAPI] Не удалось сохранить в LocalStorage:', e);
-    }
+    localSaved = this.writeLocalData(snapshot);
     const persist = async () => {
       let cloudSaved = false;
       if (this.player) {
@@ -375,9 +520,7 @@ export class YandexAPI {
       }
       if (!localSaved && !cloudSaved) throw new Error('Save failed in both local and cloud storage');
     };
-    const queued = this.saveQueue.then(persist, persist);
-    this.saveQueue = queued.catch(() => {});
-    return queued;
+    return this.saveQueue.enqueue(persist);
   }
 
   /**

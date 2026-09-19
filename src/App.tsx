@@ -3,26 +3,37 @@
  * Main Application Component
  */
 
-import { useState, useEffect, useRef } from 'react';
+import { lazy, Suspense, useState, useEffect, useRef } from 'react';
 import { GameCanvas } from './components/GameCanvas';
 import { HUD } from './components/HUD';
 import { ShopModal } from './components/ShopModal';
 import { OrderCompleteModal } from './components/OrderCompleteModal';
 import { TestDrive } from './components/TestDrive';
-import { AdOverlay } from './components/AdOverlay';
-import { SdkDebugPanel } from './components/SdkDebugPanel';
 import { YandexAPI, DEFAULT_SAVE_DATA } from './services/YandexAPI';
 import { GameEngine } from './game/GameEngine';
 import { PlayerSaveData, Order } from './types/game';
 import { AudioEngine } from './game/AudioEngine';
 import { TEST_DRIVE_CAR_SKINS } from './game/CarCatalog';
 import { closestPointOnSegment } from './game/geometry';
+import { isDeveloperToolsAuthorized } from './config/adminAccess';
+
+const DEV_COMPONENTS_COMPILED = import.meta.env.DEV || import.meta.env.VITE_ENABLE_ADMIN_TOOLS === 'true';
+const DeveloperToolsButton = DEV_COMPONENTS_COMPILED
+  ? lazy(() => import('./components/DeveloperToolsButton').then(module => ({ default: module.DeveloperToolsButton })))
+  : null;
+const SdkDebugPanel = DEV_COMPONENTS_COMPILED
+  ? lazy(() => import('./components/SdkDebugPanel').then(module => ({ default: module.SdkDebugPanel })))
+  : null;
+const AdOverlay = DEV_COMPONENTS_COMPILED
+  ? lazy(() => import('./components/AdOverlay').then(module => ({ default: module.AdOverlay })))
+  : null;
 
 export default function App() {
   const [engine, setEngine] = useState<GameEngine | null>(null);
   const engineRef = useRef<GameEngine | null>(null);
   const [saveData, setSaveData] = useState<PlayerSaveData>(DEFAULT_SAVE_DATA);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [developerToolsEnabled, setDeveloperToolsEnabled] = useState(false);
 
   // Состояния модальных окон
   const [isShopOpen, setIsShopOpen] = useState(false);
@@ -115,16 +126,21 @@ export default function App() {
   useEffect(() => {
     let alive = true;
     const yapi = YandexAPI.getInstance();
-
-    // 1. Регистрация триггера для Mock-рекламы
-    yapi.registerMockAdTrigger((type, onRewarded, onClose, onError) => {
-      setAdOverlayData({
-        isOpen: true,
-        type,
-        onRewarded,
-        onClose,
-        onError,
-      });
+    const refreshDeveloperAccess = (playerId = yapi.getPlayerUniqueId()) => {
+      if (alive) setDeveloperToolsEnabled(isDeveloperToolsAuthorized(playerId));
+    };
+    const removeConnectionListener = yapi.onPlayerConnectionChange(refreshDeveloperAccess);
+    const removeRecoveredDataListener = yapi.onRecoveredPlayerData(data => {
+      if (!alive) return;
+      const activeEngine = engineRef.current;
+      // A late cloud reconnect must not refund fuel consumed since the latest
+      // 25-second autosave. Important economy events are already saved eagerly.
+      const recovered = activeEngine
+        ? { ...data, fuel: Math.min(data.fuel, activeEngine.saveData.fuel) }
+        : data;
+      setSaveData(recovered);
+      activeEngine?.syncSaveData(recovered);
+      AudioEngine.getInstance().applySettings(recovered.settings);
     });
 
     // 2. Регистрация хуков паузы игрового процесса при показе рекламы (через engineRef)
@@ -141,14 +157,14 @@ export default function App() {
     const initApp = async () => {
       try {
         await yapi.init();
+        refreshDeveloperAccess();
         const loadedData = await yapi.loadPlayerData();
         if (!alive) return;
         setSaveData(loadedData);
 
         // Применение настроек звука
         const audio = AudioEngine.getInstance();
-        audio.setSfxEnabled(loadedData.settings.soundEnabled);
-        audio.setMusicEnabled(loadedData.settings.musicEnabled);
+        audio.applySettings(loadedData.settings);
       } catch (e) {
         if (alive) console.warn('[App] Ошибка во время инициализации, запуск с дефолтными данными:', e);
       } finally {
@@ -158,8 +174,26 @@ export default function App() {
 
     initApp();
 
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+      removeConnectionListener();
+      removeRecoveredDataListener();
+    };
   }, []);
+
+  useEffect(() => {
+    const yapi = YandexAPI.getInstance();
+    if (!developerToolsEnabled) {
+      yapi.registerMockAdTrigger(null);
+      setIsDebugOpen(false);
+      setAdOverlayData(previous => ({ ...previous, isOpen: false }));
+      return;
+    }
+    yapi.registerMockAdTrigger((type, onRewarded, onClose, onError) => {
+      setAdOverlayData({ isOpen: true, type, onRewarded, onClose, onError });
+    });
+    return () => yapi.registerMockAdTrigger(null);
+  }, [developerToolsEnabled]);
 
   // Управление паузой при открытии модалок
   useEffect(() => {
@@ -214,6 +248,20 @@ export default function App() {
     }
   };
 
+  const handleSetAudioVolume = (key: 'masterVolume' | 'engineVolume' | 'musicVolume', rawValue: number) => {
+    const value = Number.isFinite(rawValue) ? Math.max(0, Math.min(1, rawValue)) : 0;
+    const audio = AudioEngine.getInstance();
+    if (key === 'masterVolume') audio.setMasterVolume(value);
+    else if (key === 'engineVolume') audio.setEngineVolume(value);
+    else audio.setMusicVolume(value);
+    if (engine) engine.updateSettings({ [key]: value });
+    else {
+      const updated = { ...saveData, settings: { ...saveData.settings, [key]: value } };
+      setSaveData(updated);
+      void YandexAPI.getInstance().savePlayerData(YandexAPI.getInstance().prepareSaveData(updated));
+    }
+  };
+
   const testDriveSkin = TEST_DRIVE_CAR_SKINS.find(skin => skin.id === testDriveSkinId);
 
   if (!isLoaded) {
@@ -244,9 +292,12 @@ export default function App() {
         engine={engine}
         saveData={saveData}
         onOpenShop={handleOpenGarage}
-        onOpenDebug={() => setIsDebugOpen(true)}
+        developerControls={developerToolsEnabled && DeveloperToolsButton
+          ? <Suspense fallback={null}><DeveloperToolsButton onOpen={() => setIsDebugOpen(true)} /></Suspense>
+          : null}
         onToggleSound={handleToggleSound}
         onToggleMusic={handleToggleMusic}
+        onSetAudioVolume={handleSetAudioVolume}
       />}
 
       {/* 3. Гараж и магазин улучшений */}
@@ -256,6 +307,7 @@ export default function App() {
         onTestDrive={skin => { setIsShopOpen(false); setTestDriveSkinId(skin.id); }}
         engine={engine}
         saveData={saveData}
+        showDeveloperTools={developerToolsEnabled}
       />
 
       {testDriveSkinId && testDriveSkin && <TestDrive
@@ -273,16 +325,16 @@ export default function App() {
       />
 
       {/* 5. Дебаггер Yandex SDK */}
-      <SdkDebugPanel
+      {developerToolsEnabled && SdkDebugPanel && <Suspense fallback={null}><SdkDebugPanel
         isOpen={isDebugOpen}
         onClose={() => setIsDebugOpen(false)}
         engine={engine}
         saveData={saveData}
         onDataChange={setSaveData}
-      />
+      /></Suspense>}
 
       {/* 6. Полноэкранная симуляция рекламы (для тестирования) */}
-      <AdOverlay
+      {developerToolsEnabled && AdOverlay && <Suspense fallback={null}><AdOverlay
         isOpen={adOverlayData.isOpen}
         type={adOverlayData.type}
         onRewarded={adOverlayData.onRewarded}
@@ -294,7 +346,7 @@ export default function App() {
           adOverlayData.onError?.(new Error('Mock ad network error'));
           setAdOverlayData(prev => ({ ...prev, isOpen: false }));
         }}
-      />
+      /></Suspense>}
     </div>
   );
 }

@@ -18,6 +18,7 @@ interface ShopModalProps {
   onTestDrive: (skin: CarSkin) => void;
   engine: GameEngine | null;
   saveData: PlayerSaveData;
+  showDeveloperTools: boolean;
 }
 
 export function ShopModal({
@@ -26,6 +27,7 @@ export function ShopModal({
   onTestDrive,
   engine,
   saveData,
+  showDeveloperTools,
 }: ShopModalProps) {
   const [activeTab, setActiveTab] = useState<'cars' | 'upgrades'>('cars');
   const [carFilter, setCarFilter] = useState<'all' | 'unlocked' | 'locked'>('all');
@@ -97,7 +99,7 @@ export function ShopModal({
   };
 
   const updateLifecycleDraft = (id: string, patch: Partial<LifecycleDraft>) => {
-    if (!import.meta.env.DEV) return;
+    if (!showDeveloperTools || !import.meta.env.DEV) return;
     setLifecycleDrafts(current => ({ ...current, [id]: { ...current[id], ...patch } }));
   };
 
@@ -106,7 +108,7 @@ export function ShopModal({
     status: 'experimental' | 'production',
     commerce: LifecycleDraft,
   ) => {
-    if (!import.meta.env.DEV) return;
+    if (!showDeveloperTools || !import.meta.env.DEV) return;
     setLifecycleBusyId(id);
     setPurchaseMessage('');
     try {
@@ -130,7 +132,7 @@ export function ShopModal({
   };
 
   const demoteFromShop = async () => {
-    if (!import.meta.env.DEV || !currentPreviewCatalogEntry || currentPreviewCatalogEntry.id === 'cruiser') return;
+    if (!showDeveloperTools || !import.meta.env.DEV || !currentPreviewCatalogEntry || currentPreviewCatalogEntry.id === 'cruiser') return;
     if (!window.confirm(`Вернуть ${currentPreviewCatalogEntry.name} в Test Drive?`)) return;
     await writeLifecycle(currentPreviewCatalogEntry.id, 'experimental', {
       price: currentPreviewCatalogEntry.price,
@@ -321,7 +323,7 @@ export function ShopModal({
                   <button id="garage-test-drive" onClick={() => onTestDrive(currentPreviewSkin)} className="w-full mt-2 py-2.5 px-4 rounded-xl bg-violet-500 hover:bg-violet-400 text-white font-bold text-xs transition-colors shadow-lg shadow-violet-500/20">
                     ТЕСТ-ДРАЙВ · {currentPreviewSkin.name.toUpperCase()}
                   </button>
-                  {import.meta.env.DEV && currentPreviewCatalogEntry?.status === 'production' && currentPreviewCatalogEntry.id !== 'cruiser' && (
+                  {showDeveloperTools && import.meta.env.DEV && currentPreviewCatalogEntry?.status === 'production' && currentPreviewCatalogEntry.id !== 'cruiser' && (
                     <button data-dev-car-demote disabled={lifecycleBusyId === currentPreviewCatalogEntry.id}
                       onClick={demoteFromShop}
                       className="w-full mt-2 py-2 px-4 rounded-xl border border-rose-500/45 bg-rose-950/30 hover:bg-rose-900/40 disabled:opacity-50 text-rose-200 font-bold text-[10px] transition-colors">
@@ -361,7 +363,7 @@ export function ShopModal({
                       ТЕСТ-ДРАЙВ · {entry.name.toUpperCase()}
                     </button>
 
-                    {import.meta.env.DEV && (
+                    {showDeveloperTools && import.meta.env.DEV && (
                       <div data-dev-car-management className="mt-3 rounded-xl border border-amber-400/35 bg-amber-950/20 p-3">
                         <div className="text-[10px] font-black tracking-[0.16em] text-amber-300">DEV · SOURCE PROMOTION</div>
                         <div className="grid grid-cols-2 gap-2 mt-2">

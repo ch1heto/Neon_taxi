@@ -95,6 +95,8 @@ export function GameCanvas({
         gpsHasLoop: gps ? new Set(gps.laneIds).size !== gps.laneIds.length : false,
         cars: engine.map.trafficCars.map(car => ({
           id: car.id,
+          modelType: car.modelType,
+          targetSpeed: car.targetSpeed,
           distance: qaDistance.get(car.id) ?? 0,
           maxUnblockedStop: qaMaxUnblockedStop.get(car.id) ?? 0,
           maxJunctionWait: qaMaxJunctionWait.get(car.id) ?? 0,

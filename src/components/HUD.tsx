@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import {
   Coins,
   ShoppingBag,
@@ -7,21 +7,22 @@ import {
   Music,
   Zap,
   Navigation,
-  Wrench,
   MapPin,
 } from 'lucide-react';
 import { PlayerSaveData, Order } from '../types/game';
 import { GameEngine, type FuelStationStatus } from '../game/GameEngine';
 import { speedToKmh } from '../game/VehicleMetrics';
 import { EXPRESS_MAX_MULTIPLIER, getExpressEfficiency, getOrderReward, polylineDistance } from '../game/OrderEconomy';
+import { NeonFMPlayer } from './NeonFMPlayer';
 
 interface HUDProps {
   engine: GameEngine | null;
   saveData: PlayerSaveData;
   onOpenShop: () => void;
-  onOpenDebug: () => void;
+  developerControls?: ReactNode;
   onToggleSound: () => void;
   onToggleMusic: () => void;
+  onSetAudioVolume: (key: 'masterVolume' | 'engineVolume' | 'musicVolume', value: number) => void;
 }
 
 interface FloatingCoinText {
@@ -33,9 +34,10 @@ export function HUD({
   engine,
   saveData,
   onOpenShop,
-  onOpenDebug,
+  developerControls,
   onToggleSound,
   onToggleMusic,
+  onSetAudioVolume,
 }: HUDProps) {
   const [speed, setSpeed] = useState(0);
   const [dashProgress, setDashProgress] = useState(1);
@@ -269,16 +271,15 @@ export function HUD({
             />
           </button>
 
-          <button
-            id="hud-btn-debug"
-            onClick={onOpenDebug}
-            title="SDK Панель"
-            className="p-2 rounded-xl bg-slate-900/85 hover:bg-slate-800 border border-slate-700/70 text-slate-400 hover:text-cyan-300 active:scale-95 transition-all shadow-md"
-          >
-            <Wrench className="w-4 h-4" />
-          </button>
+          {developerControls}
         </div>
       </div>
+
+      <NeonFMPlayer
+        settings={saveData.settings}
+        onToggleMusic={onToggleMusic}
+        onSetVolume={onSetAudioVolume}
+      />
 
       {/* 2. Нижняя панель: Лаконичный Спидометр и кнопка Neon Dash */}
       {autoDockVisible && (

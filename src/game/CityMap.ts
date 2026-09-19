@@ -27,6 +27,12 @@ import {
   type Contact,
   type Point,
 } from './geometry';
+import {
+  getTrafficVehicleProfile,
+  renderTrafficVehicle,
+  TRAFFIC_COLOR_PALETTE,
+  TRAFFIC_VEHICLE_SPAWN_POOL,
+} from './TrafficVehicles';
 
 export const DEBUG_PHYSICS = false;
 export const CITY_GEOMETRY_SCALE = 1.35;
@@ -1585,31 +1591,24 @@ export class CityMap {
    */
   private initTraffic() {
     this.trafficCars = [];
-    const models: ('sedan' | 'suv' | 'truck' | 'sport')[] = ['sedan', 'suv', 'truck', 'sport'];
-    const colors = [
-      { body: '#f43f5e', glow: '#fb7185' }, // Cyber Red
-      { body: '#38bdf8', glow: '#67e8f9' }, // Cyan
-      { body: '#facc15', glow: '#fde047' }, // Amber Taxi
-      { body: '#a855f7', glow: '#c084fc' }, // Synth Purple
-      { body: '#22c55e', glow: '#4ade80' }, // Matrix Green
-      { body: '#f97316', glow: '#fb923c' }, // Blaze Orange
-      { body: '#e2e8f0', glow: '#ffffff' }, // Chrome White
-    ];
-
     const trafficLanes = this.lanes.filter(lane =>
       this.getRoad(lane.roadId)?.kind !== 'alley' && (this.outgoingTransitions.get(lane.id)?.length ?? 0) > 0);
     const count = Math.min(30, trafficLanes.length);
     for (let i = 0; i < count; i++) {
       const lane = trafficLanes[(i * 5) % trafficLanes.length];
-      const model = models[i % models.length];
-      const colorScheme = colors[i % colors.length];
+      const model = TRAFFIC_VEHICLE_SPAWN_POOL[i % TRAFFIC_VEHICLE_SPAWN_POOL.length];
+      const profile = getTrafficVehicleProfile(model);
+      const colorScheme = TRAFFIC_COLOR_PALETTE[(i * 7) % TRAFFIC_COLOR_PALETTE.length];
       const t = 0.15 + ((i * 37) % 70) / 100;
       const posX = lane.start.x + (lane.end.x - lane.start.x) * t;
       const posY = lane.start.y + (lane.end.y - lane.start.y) * t;
       const angle = lane.angle;
-
-      const length = model === 'truck' ? 58 : model === 'suv' ? 52 : 48;
-      const width = model === 'truck' ? 28 : model === 'suv' ? 26 : 24;
+      const targetSpeed = Math.min(170, (120 + hashNoise(i, 13, 9) * 45) * profile.speedModifier);
+      // Preserve the pre-variety collision footprint sequence exactly. Visual
+      // proportions are separate so a van/truck silhouette cannot change AI spacing.
+      const legacyCollisionType = i % 4;
+      const collisionLength = legacyCollisionType === 2 ? 58 : legacyCollisionType === 1 ? 52 : 48;
+      const collisionWidth = legacyCollisionType === 2 ? 28 : legacyCollisionType === 1 ? 26 : 24;
 
       this.trafficCars.push({
         id: `npc_${i}`,
@@ -1618,11 +1617,13 @@ export class CityMap {
         vx: Math.cos(angle) * 110,
         vy: Math.sin(angle) * 110,
         angle,
-        speed: 110 + hashNoise(i, 7, 3) * 40,
-        targetSpeed: 120 + hashNoise(i, 13, 9) * 45,
+        speed: Math.min(targetSpeed, (110 + hashNoise(i, 7, 3) * 40) * profile.speedModifier),
+        targetSpeed,
         maxSpeed: 170,
-        width,
-        length,
+        width: collisionWidth,
+        length: collisionLength,
+        visualWidth: profile.width,
+        visualLength: profile.length,
         color: colorScheme.body,
         glowColor: colorScheme.glow,
         modelType: model,
@@ -3344,49 +3345,7 @@ export class CityMap {
       ctx.translate(car.x, car.y);
       ctx.rotate(car.angle);
 
-      // Небольшой мягкий glow вместо перекрывающего дорогу треугольного конуса.
-      ctx.save();
-      ctx.globalCompositeOperation = 'screen';
-      const headlightGrad = ctx.createRadialGradient(car.length * 0.48, 0, 2, car.length * 0.6, 0, 26);
-      headlightGrad.addColorStop(0, 'rgba(255, 255, 255, 0.22)');
-      headlightGrad.addColorStop(0.35, 'rgba(6, 182, 212, 0.08)');
-      headlightGrad.addColorStop(1, 'rgba(6, 182, 212, 0)');
-      ctx.fillStyle = headlightGrad;
-      ctx.beginPath();
-      ctx.arc(car.length * 0.55, 0, 26, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-
-      // Тень кузова
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
-      ctx.fillRect(-car.length / 2 + 3, -car.width / 2 + 3, car.length, car.width);
-
-      // Корпус автомобиля
-      ctx.fillStyle = car.color;
-      ctx.beginPath();
-      ctx.roundRect(-car.length / 2, -car.width / 2, car.length, car.width, 5);
-      ctx.fill();
-
-      // Неоновый кант
-      ctx.strokeStyle = car.glowColor;
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-
-      // Лобовое и заднее стекло (тонировка)
-      ctx.fillStyle = '#070f1e';
-      ctx.fillRect(-car.length * 0.15, -car.width * 0.35, car.length * 0.4, car.width * 0.7);
-
-      // Передние фары
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(car.length * 0.44, -car.width * 0.42, 3, 5);
-      ctx.fillRect(car.length * 0.44, car.width * 0.42 - 5, 3, 5);
-
-      // Задние габариты / стоп-сигналы
-      ctx.fillStyle = car.isBraking ? '#ff2222' : '#dc2626';
-      ctx.shadowColor = car.isBraking ? '#ff0000' : '#dc2626';
-      ctx.shadowBlur = car.isBraking ? 14 : 6;
-      ctx.fillRect(-car.length * 0.48, -car.width * 0.42, 3, 6);
-      ctx.fillRect(-car.length * 0.48, car.width * 0.42 - 6, 3, 6);
+      renderTrafficVehicle(ctx, car);
 
       ctx.restore();
     }

@@ -33,6 +33,8 @@ export interface FuelStationStatus {
   full: boolean;
 }
 
+export const GAMEPLAY_AUTOSAVE_INTERVAL_SECONDS = 25;
+
 export function getCameraProfile(speed: number, maxSpeed: number, nearParking = false) {
   const ratio = Math.max(0, Math.min(1, speed / Math.max(1, maxSpeed)));
   const smoothRatio = ratio * ratio * (3 - 2 * ratio);
@@ -402,6 +404,7 @@ export class GameEngine {
     const onVisibilityChange = () => {
       if (document.hidden) {
         this.visibilityPaused = true;
+        if (this.fuelDirty) this.saveAndNotify();
       } else {
         this.lastTime = performance.now();
         this.accumulator = 0;
@@ -409,8 +412,15 @@ export class GameEngine {
       }
       this.refreshPauseState();
     };
+    const onPageHide = () => {
+      if (this.fuelDirty) this.saveAndNotify();
+    };
     document.addEventListener('visibilitychange', onVisibilityChange);
-    this.removeVisibilityListener = () => document.removeEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('pagehide', onPageHide);
+    this.removeVisibilityListener = () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('pagehide', onPageHide);
+    };
   }
 
   public start() {
@@ -492,7 +502,7 @@ export class GameEngine {
       this.saveData = { ...this.saveData, fuel: nextFuel };
       this.fuelDirty = true;
       this.fuelSaveElapsed += dt;
-      if (this.fuelSaveElapsed >= 5) this.saveAndNotify();
+      if (this.fuelSaveElapsed >= GAMEPLAY_AUTOSAVE_INTERVAL_SECONDS) this.saveAndNotify();
     }
     if (this.car.hp <= 0) {
       this.recoveryTimer = 1.35;

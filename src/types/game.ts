@@ -15,6 +15,9 @@ export interface PlayerSaveData {
   settings: {
     soundEnabled: boolean;
     musicEnabled: boolean;
+    masterVolume: number;
+    engineVolume: number;
+    musicVolume: number;
   };
 }
 
@@ -158,6 +161,16 @@ export interface TrafficLight {
   timer: number;
 }
 
+export type TrafficVehicleType =
+  | 'compact'
+  | 'sedan'
+  | 'sport'
+  | 'luxury'
+  | 'suv'
+  | 'van'
+  | 'truck'
+  | 'taxi';
+
 export interface Particle {
   x: number;
   y: number;
@@ -203,9 +216,11 @@ export interface TrafficCar {
   maxSpeed: number;
   width: number;
   length: number;
+  visualWidth?: number;
+  visualLength?: number;
   color: string;
   glowColor: string;
-  modelType: 'sedan' | 'suv' | 'truck' | 'sport';
+  modelType: TrafficVehicleType;
   currentRoadId: string;
   targetNodeId: number;
   isBraking: boolean;

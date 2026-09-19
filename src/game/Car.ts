@@ -263,7 +263,12 @@ export class Car {
     this.speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
 
     // 8. Звуковой отклик мотора
-    AudioEngine.getInstance().updateEngineRPM(Math.min(1, this.speed / this.maxSpeed));
+    AudioEngine.getInstance().updateEngineRPM(
+      Math.min(1, this.speed / this.maxSpeed),
+      Math.max(input.forward, input.reverse),
+      input.brake || (input.reverse > 0 && forwardVel > 10),
+      dt,
+    );
 
     // 9. Перемещение небольшими шагами предотвращает tunneling во время dash.
     const movementDistance = Math.hypot(this.vx, this.vy) * dt;
