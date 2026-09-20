@@ -587,7 +587,9 @@ test('every alley is connected, drivable and clear of building colliders', () =>
 });
 
 test('shop purchase is atomic and save migration repairs legacy skin ids', () => {
-  const initial = { ...DEFAULT_SAVE_DATA, coins: 1500, ordersCompleted: 8, stats: { ...DEFAULT_SAVE_DATA.stats }, settings: { ...DEFAULT_SAVE_DATA.settings }, unlockedSkinIds: ['cruiser'] };
+  const initial = { ...DEFAULT_SAVE_DATA, coins: 1500, ordersCompleted: 8,
+    carUpgrades: structuredClone(DEFAULT_SAVE_DATA.carUpgrades),
+    settings: { ...DEFAULT_SAVE_DATA.settings }, unlockedSkinIds: ['cruiser'] };
   const result = createSkinPurchase(initial, 'sport');
   assert.equal(result.status, 'success');
   assert.equal(initial.coins, 1500, 'purchase mutated the React save object');
@@ -607,8 +609,8 @@ test('shop purchase is atomic and save migration repairs legacy skin ids', () =>
 
   const upgraded = createUpgradePurchase(initial, 'speed')!;
   assert.equal(upgraded.coins, 1400);
-  assert.equal(upgraded.stats.speedLevel, 2);
-  assert.equal(initial.stats.speedLevel, 1, 'upgrade mutated the original stats');
+  assert.equal(upgraded.carUpgrades.cruiser.speedLevel, 2);
+  assert.equal(initial.carUpgrades.cruiser.speedLevel, 1, 'upgrade mutated the original car tuning');
 
   const migrated = migrateSaveData({ ...initial, selectedSkinId: 'cyan', unlockedSkinIds: ['cyan', 'suv', 'missing'] });
   assert.equal(migrated.selectedSkinId, 'cruiser');
@@ -621,7 +623,9 @@ test('loaded save data replaces the engine snapshot and applies the selected car
     applyUpgrades: (stats: unknown, skin: unknown) => { engine.applied = { stats, skin }; },
     setRuntimePerformanceMultiplier: (multiplier: number) => { engine.appliedFuelMultiplier = multiplier; },
   };
-  const loaded = { ...DEFAULT_SAVE_DATA, coins: 3210, ordersCompleted: 22, selectedSkinId: 'suv', unlockedSkinIds: ['cruiser', 'suv'], stats: { speedLevel: 3, handlingLevel: 2, dashLevel: 4 }, settings: { ...DEFAULT_SAVE_DATA.settings } };
+  const loaded = { ...DEFAULT_SAVE_DATA, coins: 3210, ordersCompleted: 22, selectedSkinId: 'suv',
+    unlockedSkinIds: ['cruiser', 'suv'], carUpgrades: { ...structuredClone(DEFAULT_SAVE_DATA.carUpgrades),
+      suv: { speedLevel: 3, handlingLevel: 2, dashLevel: 4 } }, settings: { ...DEFAULT_SAVE_DATA.settings } };
   engine.syncSaveData(loaded);
   assert.equal(engine.saveData.coins, 3210);
   assert.equal(engine.currentSkin.id, 'suv');
@@ -635,8 +639,8 @@ test('car model stats remain distinct and upgrades scale their bases', () => {
   const aerocar = new Car(0, 0);
   const suv = CAR_SKINS.find(skin => skin.id === 'suv')!;
   const sport = CAR_SKINS.find(skin => skin.id === 'sport')!;
-  cruiser.applyUpgrades(DEFAULT_SAVE_DATA.stats, CAR_SKINS[0]);
-  aerocar.applyUpgrades(DEFAULT_SAVE_DATA.stats, CAR_SKINS.find(skin => skin.id === 'aerocar')!);
+  cruiser.applyUpgrades(DEFAULT_SAVE_DATA.carUpgrades.cruiser, CAR_SKINS[0]);
+  aerocar.applyUpgrades(DEFAULT_SAVE_DATA.carUpgrades.aerocar, CAR_SKINS.find(skin => skin.id === 'aerocar')!);
   assert.ok(aerocar.maxSpeed >= cruiser.maxSpeed * 1.45);
   assert.ok(aerocar.acceleration > cruiser.acceleration * 1.5);
   assert.ok(suv.durability > sport.durability);
@@ -679,7 +683,7 @@ test('camera profile adds smooth high-speed look-ahead and zoom while parking st
   assert.ok(high.lookAhead >= 220 && high.lookAhead <= 320);
   assert.ok(high.zoom >= 0.84 && high.zoom <= 0.88);
   assert.ok(parking.lookAhead <= 75 && parking.zoom >= 0.97);
-  assert.equal(speedToKmh(CAR_SKINS[CAR_SKINS.length - 1].maxSpeed), 170);
+  assert.equal(speedToKmh(Math.max(...CAR_SKINS.map(skin => skin.maxSpeed))), 170);
 });
 
 test('Space maps to brake, X maps to dash, and braking never engages reverse', () => {

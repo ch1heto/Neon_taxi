@@ -9,9 +9,11 @@
  * - Локальный Mock-режим для бесшовного тестирования в браузере/Vite без SDK
  */
 
-import { PlayerSaveData, AdCallbacks } from '../types/game';
+import { PlayerSaveData, AdCallbacks, CarUpgradeStats } from '../types/game';
+import { CAR_CATALOG } from '../game/CarCatalog';
 import { CAR_SKINS } from '../game/Skins';
 import { clampFuel, FUEL_CAPACITY } from '../game/FuelSystem';
+import { DEFAULT_CAR_UPGRADES, sanitizeCarUpgradeStats } from '../game/CarUpgrades';
 
 // Объявление глобального объекта YaGames из CDN скрипта https://yandex.ru/games/sdk/v2
 declare global {
@@ -72,11 +74,13 @@ export const DEFAULT_SAVE_DATA: PlayerSaveData = {
   fuel: FUEL_CAPACITY,
   ordersCompleted: 0,
   highScore: 0,
-  stats: {
-    speedLevel: 1, // 1 to 5
-    handlingLevel: 1, // 1 to 5
-    dashLevel: 1, // 1 to 5
-  },
+  driverXp: 0,
+  totalEarnings: 0,
+  perfectRides: 0,
+  vipRidesCompleted: 0,
+  totalShifts: 0,
+  bestShiftScore: 0,
+  carUpgrades: Object.fromEntries(CAR_CATALOG.map(car => [car.id, { ...DEFAULT_CAR_UPGRADES }])),
   selectedSkinId: 'cruiser',
   unlockedSkinIds: ['cruiser'],
   settings: {
@@ -97,11 +101,16 @@ function getLocalStorageKey(): string {
     ? QA_STORAGE_KEY : LOCAL_STORAGE_KEY;
 }
 
+export type LegacySaveDataInput = Partial<PlayerSaveData> & {
+  stats?: Partial<CarUpgradeStats>;
+};
+
 export function migrateSaveData(
-  data: Partial<PlayerSaveData> | null | undefined,
-  availableSkins = CAR_SKINS,
+  data: LegacySaveDataInput | null | undefined,
+  availableSkins: readonly { id: string }[] = CAR_SKINS,
 ): PlayerSaveData {
   const validSkinIds = new Set(availableSkins.map(skin => skin.id));
+  const knownCarIds = new Set(CAR_CATALOG.map(car => car.id));
   const source = data ?? {};
   const selectedSkinId = typeof source.selectedSkinId === 'string' && validSkinIds.has(source.selectedSkinId)
     ? source.selectedSkinId
@@ -109,23 +118,45 @@ export function migrateSaveData(
   const unlockedSkinIds = Array.isArray(source.unlockedSkinIds)
     ? source.unlockedSkinIds.filter((id): id is string => typeof id === 'string' && validSkinIds.has(id))
     : [];
-  const sourceStats: Partial<PlayerSaveData['stats']> = source.stats && typeof source.stats === 'object'
+  const sourceStats: Partial<CarUpgradeStats> = source.stats && typeof source.stats === 'object'
     ? source.stats : {};
+  const hasLegacyStats = Boolean(source.stats && typeof source.stats === 'object' && !Array.isArray(source.stats));
+  const hasPerCarUpgrades = Boolean(source.carUpgrades && typeof source.carUpgrades === 'object' &&
+    !Array.isArray(source.carUpgrades));
+  const sourceCarUpgrades = hasPerCarUpgrades
+    ? source.carUpgrades as Record<string, unknown>
+    : {};
+  const selectedUpgradeSource = sourceCarUpgrades[selectedSkinId];
+  const hasValidSelectedUpgrade = Boolean(
+    selectedUpgradeSource && typeof selectedUpgradeSource === 'object' && !Array.isArray(selectedUpgradeSource) &&
+    ['speedLevel', 'handlingLevel', 'dashLevel'].every(key => {
+      const value = (selectedUpgradeSource as Record<string, unknown>)[key];
+      return typeof value === 'number' && Number.isFinite(value);
+    }),
+  );
+  const carUpgrades = Object.fromEntries(Array.from(knownCarIds).map(carId => [
+    carId,
+    sanitizeCarUpgradeStats(sourceCarUpgrades[carId]),
+  ]));
+  if (!hasValidSelectedUpgrade && hasLegacyStats) {
+    carUpgrades[selectedSkinId] = sanitizeCarUpgradeStats(sourceStats);
+  }
   const sourceSettings: Partial<PlayerSaveData['settings']> = source.settings && typeof source.settings === 'object'
     ? source.settings : {};
-  const clampUpgradeLevel = (value: unknown): number => {
-    if (typeof value !== 'number' || !Number.isFinite(value)) return 1;
-    return Math.max(1, Math.min(5, Math.floor(value)));
-  };
   const clampVolume = (value: unknown, fallback: number): number => {
     if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
     return Math.max(0, Math.min(1, value));
   };
+  const clampCounter = (value: unknown, maximum = Number.MAX_SAFE_INTEGER): number => {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return 0;
+    return Math.max(0, Math.min(maximum, Math.floor(value)));
+  };
   if (!unlockedSkinIds.includes('cruiser')) unlockedSkinIds.unshift('cruiser');
   if (!unlockedSkinIds.includes(selectedSkinId)) unlockedSkinIds.push(selectedSkinId);
+  const { stats: _legacyStats, ...sourceWithoutLegacyStats } = source;
   return {
     ...DEFAULT_SAVE_DATA,
-    ...source,
+    ...sourceWithoutLegacyStats,
     coins: Number.isFinite(source.coins) ? Math.max(0, Number(source.coins)) : DEFAULT_SAVE_DATA.coins,
     fuel: source.fuel === undefined ? FUEL_CAPACITY : clampFuel(source.fuel),
     saveRevision: Number.isFinite(source.saveRevision) ? Math.max(0, Math.floor(Number(source.saveRevision))) : 0,
@@ -134,13 +165,15 @@ export function migrateSaveData(
       ? Math.max(0, Math.floor(Number(source.ordersCompleted ?? (source as { completedOrders?: number }).completedOrders)))
       : 0,
     highScore: Number.isFinite(source.highScore) ? Math.max(0, Number(source.highScore)) : 0,
+    driverXp: clampCounter(source.driverXp, 1_000_000_000),
+    totalEarnings: clampCounter(source.totalEarnings),
+    perfectRides: clampCounter(source.perfectRides),
+    vipRidesCompleted: clampCounter(source.vipRidesCompleted),
+    totalShifts: clampCounter(source.totalShifts),
+    bestShiftScore: clampCounter(source.bestShiftScore, 100),
     selectedSkinId,
     unlockedSkinIds: Array.from(new Set(unlockedSkinIds)),
-    stats: {
-      speedLevel: clampUpgradeLevel(sourceStats.speedLevel),
-      handlingLevel: clampUpgradeLevel(sourceStats.handlingLevel),
-      dashLevel: clampUpgradeLevel(sourceStats.dashLevel),
-    },
+    carUpgrades,
     settings: {
       soundEnabled: typeof sourceSettings.soundEnabled === 'boolean'
         ? sourceSettings.soundEnabled : DEFAULT_SAVE_DATA.settings.soundEnabled,
@@ -153,7 +186,7 @@ export function migrateSaveData(
   };
 }
 
-export function selectNewestSave(localData: Partial<PlayerSaveData> | null, cloudData: Partial<PlayerSaveData> | null): PlayerSaveData {
+export function selectNewestSave(localData: LegacySaveDataInput | null, cloudData: LegacySaveDataInput | null): PlayerSaveData {
   if (!localData && !cloudData) return migrateSaveData(null);
   if (!localData) return migrateSaveData(cloudData);
   if (!cloudData) return migrateSaveData(localData);
@@ -228,7 +261,6 @@ export class YandexAPI {
   private reconnectAttempt = 0;
   private reconnectTimer: number | null = null;
   private connectionPromise: Promise<boolean> | null = null;
-  private playerConnectionListeners: Array<(playerId: string | null) => void> = [];
   private recoveredDataListeners: Array<(data: PlayerSaveData) => void> = [];
 
   // Mock UI callback для визуализации рекламы в режиме тестирования
@@ -274,14 +306,10 @@ export class YandexAPI {
    * Регистрация обработчика Mock-рекламы для визуализации в Dev-режиме
    */
   public registerMockAdTrigger(trigger: ((type: 'rewarded' | 'interstitial', onRewarded?: () => void, onClose?: () => void, onError?: (err: unknown) => void) => void) | null) {
-    this.mockAdTrigger = trigger;
-  }
-
-  public onPlayerConnectionChange(listener: (playerId: string | null) => void): () => void {
-    this.playerConnectionListeners.push(listener);
-    return () => {
-      this.playerConnectionListeners = this.playerConnectionListeners.filter(candidate => candidate !== listener);
-    };
+    const localDevRuntime = typeof import.meta.env !== 'undefined'
+      ? import.meta.env.DEV
+      : typeof process !== 'undefined' && process.env.NODE_ENV !== 'production';
+    this.mockAdTrigger = localDevRuntime ? trigger : null;
   }
 
   public onRecoveredPlayerData(listener: (data: PlayerSaveData) => void): () => void {
@@ -289,22 +317,6 @@ export class YandexAPI {
     return () => {
       this.recoveredDataListeners = this.recoveredDataListeners.filter(candidate => candidate !== listener);
     };
-  }
-
-  public getPlayerUniqueId(): string | null {
-    if (!this.player) return null;
-    try {
-      const id = this.player.getUniqueID();
-      return typeof id === 'string' && id.trim().length > 0 ? id.trim() : null;
-    } catch (error) {
-      console.warn('[YandexAPI] Не удалось получить unique player ID:', error);
-      return null;
-    }
-  }
-
-  private notifyPlayerConnection(): void {
-    const playerId = this.getPlayerUniqueId();
-    this.playerConnectionListeners.forEach(listener => listener(playerId));
   }
 
   private async connectPlayer(attempts: number): Promise<boolean> {
@@ -315,12 +327,10 @@ export class YandexAPI {
         { attempts, timeoutMs: YANDEX_PLAYER_TIMEOUT_MS, backoffMs: INITIAL_RETRY_BACKOFF_MS, label: 'getPlayer' },
       );
       console.log('[YandexAPI] Игрок авторизован:', this.player.getMode());
-      this.notifyPlayerConnection();
       return true;
     } catch (error) {
       this.player = null;
       console.warn('[YandexAPI] Игрок пока недоступен, продолжаем в локальном режиме:', error);
-      this.notifyPlayerConnection();
       return false;
     }
   }

@@ -76,7 +76,7 @@ export function SdkDebugPanel({
           <div className="flex items-center gap-2">
             <ShieldCheck className="w-5 h-5 text-cyan-400" />
             <h2 className="font-cyber text-lg font-bold text-white">
-              YANDEX GAMES SDK ДЕБАГГЕР
+              LOCAL DEV TOOLS
             </h2>
           </div>
           <button

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { canAccessDeveloperTools } from '../src/config/adminAccess';
+import { readFileSync } from 'node:fs';
 import { HUD } from '../src/components/HUD';
 import { DeveloperToolsButton } from '../src/components/DeveloperToolsButton';
 import { CityMap } from '../src/game/CityMap';
@@ -22,36 +22,12 @@ import {
   YANDEX_SDK_INIT_TIMEOUT_MS,
 } from '../src/services/YandexAPI';
 
-test('production and hosted dev access cannot bypass the build flag or Yandex ID allowlist', () => {
-  const adminIds = ['allowed-player'];
-  assert.equal(canAccessDeveloperTools({
-    buildEnabled: false,
-    isLocalDevelopment: true,
-    allowLocalhostFallback: true,
-    playerId: 'allowed-player',
-    adminPlayerIds: adminIds,
-  }), false);
-  assert.equal(canAccessDeveloperTools({
-    buildEnabled: true,
-    isLocalDevelopment: false,
-    allowLocalhostFallback: true,
-    playerId: 'not-allowed',
-    adminPlayerIds: adminIds,
-  }), false);
-  assert.equal(canAccessDeveloperTools({
-    buildEnabled: true,
-    isLocalDevelopment: false,
-    allowLocalhostFallback: false,
-    playerId: 'allowed-player',
-    adminPlayerIds: adminIds,
-  }), true);
-  assert.equal(canAccessDeveloperTools({
-    buildEnabled: true,
-    isLocalDevelopment: true,
-    allowLocalhostFallback: true,
-    playerId: null,
-    adminPlayerIds: [],
-  }), true);
+test('developer tools use only the Vite DEV guard and no Yandex identity allowlist', () => {
+  const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
+  const envSource = readFileSync(new URL('../.env.example', import.meta.url), 'utf8');
+  const yandexSource = readFileSync(new URL('../src/services/YandexAPI.ts', import.meta.url), 'utf8');
+  assert.match(appSource, /DEV_COMPONENTS_COMPILED = import\.meta\.env\.DEV/);
+  assert.doesNotMatch(appSource + envSource + yandexSource, /ADMIN_PLAYER_IDS|VITE_ENABLE_ADMIN_TOOLS|VITE_LOCAL_DEV_ADMIN|getPlayerUniqueId/);
 });
 
 test('HUD omits the debug control unless privileged tools are authorized', () => {
@@ -59,6 +35,8 @@ test('HUD omits the debug control unless privileged tools are authorized', () =>
     engine: null,
     saveData: DEFAULT_SAVE_DATA,
     onOpenShop: () => {},
+    onOpenProfile: () => {},
+    onEndShift: () => {},
     onToggleSound: () => {},
     onToggleMusic: () => {},
     onSetAudioVolume: () => {},
@@ -78,18 +56,17 @@ test('HUD omits the debug control unless privileged tools are authorized', () =>
   assert.doesNotMatch(productionMarkup, /id="neon-fm-play"[^>]*disabled=""/);
 });
 
-test('save migration clamps every upgrade level and repairs non-finite values', () => {
+test('save migration clamps every per-car upgrade level and repairs non-finite values', () => {
   const migrated = migrateSaveData({
     ...DEFAULT_SAVE_DATA,
     coins: Number.POSITIVE_INFINITY,
     highScore: Number.NaN,
-    stats: {
-      speedLevel: -20,
-      handlingLevel: 9.8,
-      dashLevel: Number.NaN,
+    carUpgrades: {
+      ...DEFAULT_SAVE_DATA.carUpgrades,
+      cruiser: { speedLevel: -20, handlingLevel: 9.8, dashLevel: Number.NaN },
     },
   });
-  assert.deepEqual(migrated.stats, { speedLevel: 1, handlingLevel: 5, dashLevel: 1 });
+  assert.deepEqual(migrated.carUpgrades.cruiser, { speedLevel: 1, handlingLevel: 5, dashLevel: 1 });
   assert.equal(migrated.coins, DEFAULT_SAVE_DATA.coins);
   assert.equal(migrated.highScore, 0);
 });

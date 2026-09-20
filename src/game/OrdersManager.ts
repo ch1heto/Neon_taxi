@@ -1,8 +1,15 @@
-import { Order, FloatingText } from '../types/game';
+import { Order, FloatingText, ParkingZone, PassengerType } from '../types/game';
 import { CityMap } from './CityMap';
 import { AudioEngine } from './AudioEngine';
 import { orientationDifference, pointInRotatedRect, vehicleFootprintSamples } from './geometry';
-import { EXPRESS_PROBABILITY, getExpressTargetTime, getNormalReward, getOrderReward, getRouteDistance } from './OrderEconomy';
+import { getExpressTargetTime, getNormalReward, getOrderReward, getRouteDistance } from './OrderEconomy';
+import {
+  getCollisionQualityPenalty,
+  getPassengerDefinition,
+  LONG_DISTANCE_MIN_ROUTE_DISTANCE,
+  PASSENGER_NAMES,
+  selectPassengerType,
+} from './PassengerSystem';
 
 export interface ParkingCarState {
   x: number;
@@ -48,6 +55,20 @@ export class OrdersManager {
     this.cancelCurrentOrder();
   }
 
+  /** Reject one offer while keeping the current shift alive. */
+  public rejectCurrentOrder(): boolean {
+    if (!this.shiftActive || !this.currentOrder) return false;
+    this.cancelCurrentOrder();
+    return true;
+  }
+
+  public endShift(): boolean {
+    if (!this.shiftActive || this.currentOrder) return false;
+    this.shiftActive = false;
+    this.map.invalidateGpsRoute();
+    return true;
+  }
+
   public cancelCurrentOrder() {
     this.currentOrder = null;
     this.map.invalidateGpsRoute();
@@ -56,27 +77,18 @@ export class OrdersManager {
   }
 
   public spawnOrder(): Order {
-    const passengerNames = [
-      'Алекс Нео', 'Крис Кибер', 'Ева Скай', 'Рекс Дроид',
-      'Нова Тек', 'Майя Волна', 'Сэм Портер', 'Винсент Глитч',
-      'Хлоя Вейв', 'Лео Драйв', 'Анна Кодер', 'Макс Турбо',
-    ];
     const zones = this.map.parkingZones;
     if (zones.length < 2) throw new Error('CityMap requires at least two parking zones');
     const pickupZone = zones[Math.floor(Math.random() * zones.length)];
-    let destZone = zones[Math.floor(Math.random() * zones.length)];
-    let tries = 0;
-    while (tries < 25 && (destZone.id === pickupZone.id || Math.hypot(destZone.x - pickupZone.x, destZone.y - pickupZone.y) < 900)) {
-      destZone = zones[Math.floor(Math.random() * zones.length)];
-      tries++;
-    }
-    const routeDistance = getRouteDistance(this.map,
-      { x: pickupZone.x, y: pickupZone.y, angle: pickupZone.angle },
-      { x: destZone.x, y: destZone.y });
-    const orderType = Math.random() < EXPRESS_PROBABILITY ? 'express' : 'normal';
+    const passengerType = selectPassengerType();
+    const passenger = getPassengerDefinition(passengerType);
+    const { zone: destZone, routeDistance } = this.selectDestination(pickupZone, passengerType);
+    const orderType = passenger.timed ? 'express' : 'normal';
     const order: Order = {
       id: `ord_${Date.now()}_${++this.nextOrderId}`,
-      passengerName: passengerNames[Math.floor(Math.random() * passengerNames.length)],
+      passengerName: PASSENGER_NAMES[Math.floor(Math.random() * PASSENGER_NAMES.length)],
+      passengerType,
+      passengerDialogue: passenger.dialogue[Math.floor(Math.random() * passenger.dialogue.length)],
       pickupDistrict: pickupZone.district.toUpperCase(),
       destinationDistrict: destZone.district.toUpperCase(),
       pickupSpotName: pickupZone.name,
@@ -92,9 +104,18 @@ export class OrdersManager {
       routeDistance,
       orderType,
       baseReward: getNormalReward(routeDistance),
-      targetTime: getExpressTargetTime(routeDistance),
+      targetTime: getExpressTargetTime(routeDistance) * passenger.targetTimeModifier,
       pickupElapsed: 0,
       rideElapsed: 0,
+      rideQuality: 100,
+      strongCollisions: 0,
+      rushSuccess: false,
+      perfectRide: false,
+      earnedXp: 0,
+      driverXpBefore: 0,
+      driverXpAfter: 0,
+      levelBefore: 1,
+      levelAfter: 1,
       status: 'pickup',
     };
     this.currentOrder = order;
@@ -103,6 +124,55 @@ export class OrdersManager {
     this.parkingHold = 0;
     this.parkingFeedback = '';
     return order;
+  }
+
+  private selectDestination(pickupZone: ParkingZone, passengerType: PassengerType): {
+    zone: ParkingZone;
+    routeDistance: number;
+  } {
+    const candidates = this.map.parkingZones.filter(zone => zone.id !== pickupZone.id);
+    if (passengerType === 'LONG_DISTANCE') {
+      const routed = candidates.map(zone => ({
+        zone,
+        routeDistance: getRouteDistance(this.map,
+          { x: pickupZone.x, y: pickupZone.y, angle: pickupZone.angle }, zone),
+      }));
+      const longRoutes = routed.filter(candidate => candidate.routeDistance >= LONG_DISTANCE_MIN_ROUTE_DISTANCE);
+      const pool = longRoutes.length > 0
+        ? longRoutes
+        : routed.sort((a, b) => b.routeDistance - a.routeDistance).slice(0, 1);
+      return pool[Math.floor(Math.random() * pool.length)];
+    }
+
+    let destination = candidates[Math.floor(Math.random() * candidates.length)];
+    for (let tries = 0; tries < 25 && Math.hypot(
+      destination.x - pickupZone.x,
+      destination.y - pickupZone.y,
+    ) < 900; tries++) {
+      destination = candidates[Math.floor(Math.random() * candidates.length)];
+    }
+    return {
+      zone: destination,
+      routeDistance: getRouteDistance(this.map,
+        { x: pickupZone.x, y: pickupZone.y, angle: pickupZone.angle }, destination),
+    };
+  }
+
+  public recordStrongCollision(intensity: number): number {
+    const order = this.currentOrder;
+    if (!order || order.status !== 'in_transit') return 0;
+    const penalty = getCollisionQualityPenalty(order.passengerType, intensity);
+    if (penalty <= 0) return 0;
+    order.strongCollisions += 1;
+    order.rideQuality = Math.max(0, order.rideQuality - penalty);
+    return penalty;
+  }
+
+  public recordAggressiveDriving(dt: number, severity = 1): void {
+    const order = this.currentOrder;
+    if (!order || order.status !== 'in_transit' || order.passengerType !== 'CAUTIOUS') return;
+    const safeSeverity = Number.isFinite(severity) ? Math.max(0, Math.min(1, severity)) : 0;
+    order.rideQuality = Math.max(0, order.rideQuality - Math.max(0, dt) * 1.2 * safeSeverity);
   }
 
   public update(dt: number, car: ParkingCarState): { completed: boolean; reward?: number; justPickedUp?: boolean } {
@@ -148,10 +218,13 @@ export class OrdersManager {
       this.map.invalidateGpsRoute();
       AudioEngine.getInstance().playPickupSound();
       this.addFloatingText(order.pickupX, order.pickupY - 30, 'ПАССАЖИР СЕЛ! В ПУТЬ 🚗', '#38bdf8');
+      this.addFloatingText(order.pickupX, order.pickupY - 55, `«${order.passengerDialogue}»`, '#e2e8f0');
       return { completed: false, justPickedUp: true };
     }
 
     order.status = 'completed';
+    order.rideQuality = Math.round(Math.max(0, Math.min(100, order.rideQuality)));
+    order.rushSuccess = order.passengerType === 'RUSH' && order.rideElapsed <= order.targetTime;
     const totalReward = getOrderReward(order);
     AudioEngine.getInstance().playDeliverySuccessSound();
     AudioEngine.getInstance().playCoinSound();

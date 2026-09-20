@@ -164,6 +164,7 @@ test('auto-dock completes pickup and Normal dropoff without replacing parking va
   const engine = makeEngine(80);
   const order = engine.startShift();
   order.orderType = 'normal';
+  order.passengerType = 'NORMAL';
   const expectedReward = getNormalReward(order.routeDistance);
   assert.equal(order.baseReward, expectedReward);
   const pickup = engine.map.parkingZones.find(zone => zone.id === order.pickupZoneId)!;
@@ -186,6 +187,7 @@ test('Express timer and reward formula continue during docking while fuel tracks
   const order = engine.startShift();
   order.status = 'in_transit';
   order.orderType = 'express';
+  order.passengerType = 'RUSH';
   order.rideElapsed = 8;
   const originalBaseReward = order.baseReward;
   const originalTargetTime = order.targetTime;
@@ -202,6 +204,8 @@ test('Express timer and reward formula continue during docking while fuel tracks
     baseReward: originalBaseReward,
     targetTime: originalTargetTime,
     rideElapsed: 8.1,
+    passengerType: 'RUSH',
+    rideQuality: order.rideQuality,
   }));
   for (let tick = 0; tick < 6; tick++) tickEngine(engine, 0.1);
   assert.ok(engine.saveData.fuel < fuelBefore, 'assisted displacement did not consume fuel');
@@ -245,6 +249,7 @@ test('cancel, destination change, pause and refuse clear assist without leaving 
   engine.refuseOrder();
   assert.equal(engine.passengerAutoDock.isActive(), false);
   assert.equal(engine.orders.getCurrentOrder(), null);
-  assert.equal(engine.orders.isShiftActive(), false);
+  assert.equal(engine.orders.isShiftActive(), true);
+  assert.equal(engine.getShiftStats()?.rejectedOrders, 1);
   engine.stop();
 });

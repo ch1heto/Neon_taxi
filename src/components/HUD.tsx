@@ -8,17 +8,22 @@ import {
   Zap,
   Navigation,
   MapPin,
+  UserRound,
+  Flag,
 } from 'lucide-react';
 import { PlayerSaveData, Order } from '../types/game';
 import { GameEngine, type FuelStationStatus } from '../game/GameEngine';
 import { speedToKmh } from '../game/VehicleMetrics';
-import { EXPRESS_MAX_MULTIPLIER, getExpressEfficiency, getOrderReward, polylineDistance } from '../game/OrderEconomy';
+import { getEstimatedOrderReward, getExpressEfficiency, getOrderReward, polylineDistance } from '../game/OrderEconomy';
 import { NeonFMPlayer } from './NeonFMPlayer';
+import { getPassengerDefinition } from '../game/PassengerSystem';
 
 interface HUDProps {
   engine: GameEngine | null;
   saveData: PlayerSaveData;
   onOpenShop: () => void;
+  onOpenProfile: () => void;
+  onEndShift: () => void;
   developerControls?: ReactNode;
   onToggleSound: () => void;
   onToggleMusic: () => void;
@@ -34,6 +39,8 @@ export function HUD({
   engine,
   saveData,
   onOpenShop,
+  onOpenProfile,
+  onEndShift,
   developerControls,
   onToggleSound,
   onToggleMusic,
@@ -135,6 +142,7 @@ export function HUD({
     : fuel <= 20
       ? 'НИЗКИЙ УРОВЕНЬ ТОПЛИВА'
       : '';
+  const passenger = currentOrder ? getPassengerDefinition(currentOrder.passengerType) : null;
 
   return (
     <div
@@ -185,6 +193,16 @@ export function HUD({
             НАЧАТЬ СМЕНУ
           </button>
         )}
+        {shiftActive && !currentOrder && (
+          <div className="flex items-center gap-2">
+            <button id="btn-next-order" onClick={() => engine?.requestNextOrder()} className="rounded-xl bg-cyan-500 px-4 py-3 text-sm font-black text-slate-950 shadow-lg shadow-cyan-500/20">
+              СЛЕДУЮЩИЙ ЗАКАЗ
+            </button>
+            <button id="btn-end-shift" onClick={onEndShift} className="flex items-center gap-1.5 rounded-xl border border-fuchsia-400/50 bg-slate-950/90 px-3 py-3 text-xs font-black text-fuchsia-200">
+              <Flag className="h-4 w-4" /> ЗАВЕРШИТЬ СМЕНУ
+            </button>
+          </div>
+        )}
         {currentOrder && (
           <div
             id="hud-gps"
@@ -198,6 +216,12 @@ export function HUD({
             </div>
 
             <div className="flex flex-col">
+              <div className="mb-1 flex items-center gap-2">
+                <span className="text-sm font-black text-white">{currentOrder.passengerName}</span>
+                <span className="rounded border border-cyan-400/30 bg-cyan-400/10 px-1.5 py-0.5 text-[9px] font-black text-cyan-200">
+                  {passenger?.icon} {passenger?.displayName}
+                </span>
+              </div>
               <div className="flex items-center gap-1.5">
                 <span
                   className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${
@@ -217,14 +241,19 @@ export function HUD({
               <div className="flex items-center gap-2 mt-0.5 text-xs text-slate-400">
                 <span>{targetDistance} м</span>
                 <span>•</span>
-                <span className="text-amber-400 font-bold">{currentOrder.orderType === 'normal' ? currentOrder.baseReward : getOrderReward(currentOrder)} $</span>
+                <span className="text-amber-400 font-bold">{currentOrder.status === 'pickup' ? '~' : ''}{currentOrder.status === 'pickup' ? getEstimatedOrderReward(currentOrder) : getOrderReward(currentOrder)} $</span>
               </div>
               <div className="mt-1 text-[10px] text-slate-300">
-                {currentOrder.orderType === 'express' ? (
-                  <span className="text-amber-300 font-bold">⚡ ЭКСПРЕСС · Эффективность: {Math.round(getExpressEfficiency(currentOrder.rideElapsed, currentOrder.targetTime) * 100)}%<br />Текущая выплата: {getOrderReward(currentOrder)} $ · Максимум: {Math.round(currentOrder.baseReward * EXPRESS_MAX_MULTIPLIER)} $</span>
-                ) : <span>ОБЫЧНЫЙ ЗАКАЗ · Оплата фиксирована · {Math.round(currentOrder.routeDistance / 3.2)} м</span>}
+                <span>{passenger?.description} · {passenger?.conditionLabel}</span>
+                {currentOrder.passengerType === 'RUSH' && currentOrder.status === 'in_transit' && (
+                  <span className="block text-amber-300 font-bold">⚡ Эффективность: {Math.round(getExpressEfficiency(currentOrder.rideElapsed, currentOrder.targetTime) * 100)}%</span>
+                )}
+                {currentOrder.status === 'in_transit' && (
+                  <span className={`block font-bold ${currentOrder.rideQuality >= 80 ? 'text-emerald-300' : 'text-amber-300'}`}>КАЧЕСТВО ПОЕЗДКИ: {Math.round(currentOrder.rideQuality)}%</span>
+                )}
+                <span className="block italic text-slate-400">«{currentOrder.passengerDialogue}»</span>
               </div>
-              <button id="btn-refuse-order" onClick={() => engine?.refuseOrder()} className="mt-1 text-[11px] font-bold text-rose-300 hover:text-rose-200">ОТКАЗАТЬСЯ</button>
+              <button id="btn-refuse-order" onClick={() => engine?.rejectOrder()} className="mt-1 text-[11px] font-bold text-rose-300 hover:text-rose-200">ОТКАЗАТЬСЯ</button>
               {nearbyHint && (
                 <div className="mt-1 text-[10px] leading-tight text-cyan-200/90 whitespace-nowrap">
                   {nearbyHint}
@@ -243,6 +272,16 @@ export function HUD({
           >
             <ShoppingBag className="w-4 h-4 text-cyan-400" />
             <span className="hidden sm:inline">Гараж</span>
+          </button>
+
+          <button
+            id="hud-btn-profile"
+            onClick={onOpenProfile}
+            aria-label="Профиль водителя"
+            className="flex items-center gap-2 rounded-xl border border-cyan-500/30 bg-slate-900/90 px-3 py-2 text-xs font-bold text-slate-100 shadow-md transition-all hover:bg-slate-800 active:scale-95"
+          >
+            <UserRound className="h-4 w-4 text-fuchsia-300" />
+            <span className="hidden sm:inline">Водитель</span>
           </button>
 
           <button

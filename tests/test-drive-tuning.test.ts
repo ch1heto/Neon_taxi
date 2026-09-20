@@ -110,13 +110,14 @@ test('configuration changes reset the car and all configuration-scoped telemetry
   assert.equal(session.bestLap, null);
 });
 
-test('Test Drive does not mutate career stats, ownership, coins or selected car', () => {
+test('Test Drive does not mutate career per-car tuning, ownership, coins or selected car', () => {
   const career = structuredClone({
     ...DEFAULT_SAVE_DATA,
     coins: 4321,
     selectedSkinId: 'cruiser',
     unlockedSkinIds: ['cruiser'],
-    stats: { speedLevel: 4, handlingLevel: 3, dashLevel: 2 },
+    carUpgrades: { ...structuredClone(DEFAULT_SAVE_DATA.carUpgrades),
+      cruiser: { speedLevel: 4, handlingLevel: 3, dashLevel: 2 } },
   });
   const before = structuredClone(career);
   const lockedSkin = CAR_SKINS.find(candidate => !career.unlockedSkinIds.includes(candidate.id))!;
@@ -129,7 +130,7 @@ test('Test Drive does not mutate career stats, ownership, coins or selected car'
   assert.equal(career.unlockedSkinIds.includes(lockedSkin.id), false);
   assert.equal(career.coins, 4321);
   assert.equal(career.selectedSkinId, 'cruiser');
-  assert.deepEqual(career.stats, { speedLevel: 4, handlingLevel: 3, dashLevel: 2 });
+  assert.deepEqual(career.carUpgrades.cruiser, { speedLevel: 4, handlingLevel: 3, dashLevel: 2 });
 });
 
 test('identical model and levels produce identical career and Test Drive physics without stacking', () => {

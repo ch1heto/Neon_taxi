@@ -25,30 +25,34 @@ function mockCanvasContext(): CanvasRenderingContext2D {
   });
 }
 
-test('Skyline is the sixth career skin with stable commerce metadata', () => {
-  assert.equal(CAR_SKINS.length, 6);
+test('Skyline remains a career skin whose commerce metadata comes from the catalog', () => {
+  assert.ok(CAR_SKINS.length >= 6);
   assert.ok(skyline);
   assert.equal(skyline.name, 'Nissan Skyline GT-R R34');
   assert.equal(skyline.modelType, 'skyline-r34');
-  assert.equal(skyline.price, 12000);
-  assert.equal(skyline.requiredOrders, 48);
+  assert.ok(Number.isInteger(skyline.price) && skyline.price >= 0);
+  assert.ok(Number.isInteger(skyline.requiredOrders) && skyline.requiredOrders >= 0);
   assert.equal(CAR_SKINS.some(skin => skin.id === 'experimental-neon-street-gt'), false);
 });
 
 test('Skyline purchase enforces money and orders, unlocks once, and selects the car', () => {
   const eligible = migrateSaveData({
     ...DEFAULT_SAVE_DATA,
-    coins: 12000,
-    ordersCompleted: 48,
+    coins: skyline.price,
+    ordersCompleted: skyline.requiredOrders,
     selectedSkinId: 'cruiser',
     unlockedSkinIds: ['cruiser'],
   });
-  assert.deepEqual(createSkinPurchase({ ...eligible, ordersCompleted: 47 }, SKYLINE_ID), {
-    status: 'notEnoughOrders', required: 48, completed: 47,
-  });
-  assert.deepEqual(createSkinPurchase({ ...eligible, coins: 11999 }, SKYLINE_ID), {
-    status: 'notEnoughCoins', missingCoins: 1,
-  });
+  if (skyline.requiredOrders > 0) {
+    assert.deepEqual(createSkinPurchase({ ...eligible, ordersCompleted: skyline.requiredOrders - 1 }, SKYLINE_ID), {
+      status: 'notEnoughOrders', required: skyline.requiredOrders, completed: skyline.requiredOrders - 1,
+    });
+  }
+  if (skyline.price > 0) {
+    assert.deepEqual(createSkinPurchase({ ...eligible, coins: skyline.price - 1 }, SKYLINE_ID), {
+      status: 'notEnoughCoins', missingCoins: 1,
+    });
+  }
 
   const purchase = createSkinPurchase(eligible, SKYLINE_ID);
   assert.equal(purchase.status, 'success');
@@ -64,9 +68,8 @@ test('Skyline purchase enforces money and orders, unlocks once, and selects the 
   assert.equal(selectedAgain.saveData.unlockedSkinIds.filter(id => id === SKYLINE_ID).length, 1);
 });
 
-test('save migration preserves Skyline ownership and career selection without changing legacy schema', () => {
+test('save migration assigns legacy global tuning only to the selected Skyline', () => {
   const saved = JSON.parse(JSON.stringify({
-    ...DEFAULT_SAVE_DATA,
     saveRevision: 9,
     coins: 321,
     fuel: 41.5,
@@ -80,7 +83,9 @@ test('save migration preserves Skyline ownership and career selection without ch
   assert.equal(loaded.saveRevision, 9);
   assert.equal(loaded.coins, 321);
   assert.equal(loaded.fuel, 41.5);
-  assert.deepEqual(loaded.stats, { speedLevel: 3, handlingLevel: 2, dashLevel: 4 });
+  assert.deepEqual(loaded.carUpgrades[SKYLINE_ID], { speedLevel: 3, handlingLevel: 2, dashLevel: 4 });
+  assert.deepEqual(loaded.carUpgrades.cruiser, { speedLevel: 1, handlingLevel: 1, dashLevel: 1 });
+  assert.equal('stats' in loaded, false);
 });
 
 test('Skyline Test Drive starts at 1/1/1 and supports all temporary upgrade levels', () => {

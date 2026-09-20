@@ -5,7 +5,7 @@ import { AudioEngine } from './AudioEngine';
 import { ParticleSystem } from './Particles';
 import { YandexAPI } from '../services/YandexAPI';
 import { CAR_SKINS, getUpgradeCost } from './Skins';
-import { PlayerSaveData, CarSkin, Order } from '../types/game';
+import { PlayerSaveData, CarSkin, Order, CarUpgradeStats } from '../types/game';
 export { speedToKmh } from './VehicleMetrics';
 import {
   clampFuel,
@@ -17,6 +17,16 @@ import {
   stationContainsPoint,
 } from './FuelSystem';
 import { PassengerAutoDock } from './PassengerAutoDock';
+import { calculateOrderXp, isPerfectRide, levelFromXp } from './DriverProgression';
+import { cloneCarUpgrades, getCarUpgradeStats, sanitizeCarUpgradeStats } from './CarUpgrades';
+import { getCautiousAggressionSeverity } from './PassengerSystem';
+import { getCarCatalogEntry } from './CarCatalog';
+import {
+  completeShift,
+  createShiftStats,
+  type ShiftResult,
+  type ShiftStats,
+} from './ShiftSystem';
 
 export interface GameInputState {
   forward: number;
@@ -66,12 +76,14 @@ export function createSkinPurchase(
   if (!unlocked && saveData.coins < skin.price) {
     return { status: 'notEnoughCoins', missingCoins: skin.price - saveData.coins };
   }
+  const carUpgrades = cloneCarUpgrades(saveData.carUpgrades);
+  carUpgrades[skinId] = getCarUpgradeStats(saveData, skinId);
   const nextSave = {
     ...saveData,
     coins: unlocked ? saveData.coins : saveData.coins - skin.price,
     selectedSkinId: skinId,
     unlockedSkinIds: unlocked ? [...saveData.unlockedSkinIds] : [...saveData.unlockedSkinIds, skinId],
-    stats: { ...saveData.stats },
+    carUpgrades,
     settings: { ...saveData.settings },
   };
   return { status: unlocked ? 'alreadyOwned' : 'success', saveData: nextSave };
@@ -79,20 +91,29 @@ export function createSkinPurchase(
 
 export function createUpgradePurchase(
   saveData: PlayerSaveData,
-  type: 'speed' | 'handling' | 'dash',
+  type: 'speed' | 'handling' | 'dash' | string,
+  carId = saveData.selectedSkinId,
 ): PlayerSaveData | null {
+  const catalogEntry = getCarCatalogEntry(carId);
+  if (!catalogEntry || catalogEntry.status !== 'production' || !saveData.unlockedSkinIds.includes(carId)) return null;
+  if (type !== 'speed' && type !== 'handling' && type !== 'dash') return null;
+  const currentStats = getCarUpgradeStats(saveData, carId);
   const currentLevel = type === 'speed'
-    ? saveData.stats.speedLevel
+    ? currentStats.speedLevel
     : type === 'handling'
-      ? saveData.stats.handlingLevel
-      : saveData.stats.dashLevel;
+      ? currentStats.handlingLevel
+      : currentStats.dashLevel;
   const cost = getUpgradeCost(type, currentLevel);
   if (cost === null || saveData.coins < cost) return null;
-  const stats = { ...saveData.stats, [`${type}Level`]: currentLevel + 1 } as PlayerSaveData['stats'];
+  const carUpgrades = cloneCarUpgrades(saveData.carUpgrades);
+  carUpgrades[carId] = {
+    ...currentStats,
+    [`${type}Level`]: currentLevel + 1,
+  } as CarUpgradeStats;
   return {
     ...saveData,
     coins: saveData.coins - cost,
-    stats,
+    carUpgrades,
     unlockedSkinIds: [...saveData.unlockedSkinIds],
     settings: { ...saveData.settings },
   };
@@ -132,6 +153,8 @@ export class GameEngine {
   private fuelSaveElapsed = 0;
   private refuelFeedback = '';
   private refuelFeedbackTimer = 0;
+  private shiftStats: ShiftStats | null = null;
+  private previousSteerInput = 0;
 
   // Игровой цикл
   private isRunning = false;
@@ -178,13 +201,17 @@ export class GameEngine {
     // Старт на северном проспекте Downtown, вне центрального острова roundabout.
     this.car = new Car(3200 * CITY_GEOMETRY_SCALE, 2700 * CITY_GEOMETRY_SCALE);
     this.car.angle = -Math.PI / 2;
-    this.car.applyUpgrades(this.saveData.stats, this.currentSkin);
+    this.car.applyUpgrades(getCarUpgradeStats(this.saveData, this.currentSkin.id), this.currentSkin);
     this.car.setRuntimePerformanceMultiplier(fuelSpeedMultiplier(this.saveData.fuel));
 
     // 4.2 Тряска экрана и визуальная отдача при ударе
     this.car.onCrashCallback = (intensity) => {
       this.triggerScreenShake(intensity);
       this.particles.spawnSparks(this.car.x, this.car.y, 14, '#f59e0b');
+      if (intensity >= 0.42 && this.orders?.isShiftActive()) {
+        if (this.shiftStats) this.shiftStats.collisions += 1;
+        this.orders.recordStrongCollision(intensity);
+      }
     };
 
     this.orders = new OrdersManager(this.map);
@@ -219,12 +246,46 @@ export class GameEngine {
     this.onOrderCompletePromptCallback = cb;
   }
 
-  public startShift() { return this.orders.startShift(); }
-  public refuseOrder() {
-    this.passengerAutoDock.cancel();
-    this.orders.refuseOrder();
+  public startShift() {
+    if (!this.orders.isShiftActive()) {
+      this.shiftStats = createShiftStats(this.saveData.driverXp);
+    }
+    return this.orders.startShift();
   }
+
+  /** Backward-compatible alias: rejects only the active order and keeps the shift. */
+  public refuseOrder(): boolean {
+    return this.rejectOrder();
+  }
+
+  public rejectOrder(): boolean {
+    this.passengerAutoDock.cancel();
+    if (!this.orders.rejectCurrentOrder()) return false;
+    if (this.shiftStats) this.shiftStats.rejectedOrders += 1;
+    return true;
+  }
+
   public requestNextOrder() { return this.orders.requestNextOrder(); }
+
+  public getShiftStats(): ShiftStats | null {
+    return this.shiftStats ? { ...this.shiftStats } : null;
+  }
+
+  public endShift(): ShiftResult | null {
+    if (!this.shiftStats || !this.orders.endShift()) return null;
+    const completion = completeShift(this.saveData, this.shiftStats);
+    this.saveData = completion.saveData;
+    this.shiftStats = null;
+    this.saveAndNotify();
+    return completion.result;
+  }
+
+  /** Rejects the current order, then completes the shift through the normal result path. */
+  public cancelCurrentOrderAndEndShift(): ShiftResult | null {
+    if (!this.shiftStats || !this.orders.isShiftActive()) return null;
+    if (this.orders.getCurrentOrder() && !this.rejectOrder()) return null;
+    return this.endShift();
+  }
 
   public claimRewardedBonus(orderId: string): boolean {
     const reward = this.completedRewards.get(orderId);
@@ -239,7 +300,7 @@ export class GameEngine {
   public syncSaveData(saveData: PlayerSaveData) {
     this.saveData = { ...this.cloneSaveData(saveData), fuel: clampFuel(saveData.fuel) };
     this.currentSkin = CAR_SKINS.find(s => s.id === this.saveData.selectedSkinId) || CAR_SKINS[0];
-    this.car.applyUpgrades(this.saveData.stats, this.currentSkin);
+    this.car.applyUpgrades(getCarUpgradeStats(this.saveData, this.currentSkin.id), this.currentSkin);
     this.car.setRuntimePerformanceMultiplier(fuelSpeedMultiplier(this.saveData.fuel));
   }
 
@@ -248,14 +309,20 @@ export class GameEngine {
     if (skin) {
       this.currentSkin = skin;
       this.saveData = { ...this.saveData, selectedSkinId: skinId };
-      this.car.applyUpgrades(this.saveData.stats, skin);
+      this.car.applyUpgrades(getCarUpgradeStats(this.saveData, skin.id), skin);
       this.saveAndNotify();
     }
   }
 
-  public updateStats(stats: PlayerSaveData['stats']) {
-    this.saveData.stats = { ...stats };
-    this.car.applyUpgrades(this.saveData.stats, this.currentSkin);
+  public updateCurrentCarUpgrades(stats: CarUpgradeStats) {
+    this.saveData = {
+      ...this.saveData,
+      carUpgrades: {
+        ...cloneCarUpgrades(this.saveData.carUpgrades),
+        [this.currentSkin.id]: sanitizeCarUpgradeStats(stats),
+      },
+    };
+    this.car.applyUpgrades(getCarUpgradeStats(this.saveData, this.currentSkin.id), this.currentSkin);
     this.saveAndNotify();
   }
 
@@ -271,7 +338,7 @@ export class GameEngine {
     try {
       this.saveData = this.yandexApi.prepareSaveData(result.saveData);
       this.currentSkin = skin;
-      this.car.applyUpgrades(this.saveData.stats, skin);
+      this.car.applyUpgrades(getCarUpgradeStats(this.saveData, skin.id), skin);
       await this.yandexApi.savePlayerData(this.saveData);
       this.onDataChangeCallback?.(this.cloneSaveData(this.saveData));
       return { ...result, saveData: this.cloneSaveData(this.saveData) };
@@ -279,7 +346,7 @@ export class GameEngine {
       console.warn('[GameEngine] Atomic car purchase save failed:', error);
       this.saveData = previousSave;
       this.currentSkin = previousSkin;
-      this.car.applyUpgrades(previousSave.stats, previousSkin);
+      this.car.applyUpgrades(getCarUpgradeStats(previousSave, previousSkin.id), previousSkin);
       return { status: 'saveError' };
     } finally {
       this.purchaseInFlight = false;
@@ -287,10 +354,10 @@ export class GameEngine {
   }
 
   public purchaseUpgrade(type: 'speed' | 'handling' | 'dash'): boolean {
-    const nextSave = createUpgradePurchase(this.saveData, type);
+    const nextSave = createUpgradePurchase(this.saveData, type, this.currentSkin.id);
     if (!nextSave) return false;
     this.saveData = nextSave;
-    this.car.applyUpgrades(nextSave.stats, this.currentSkin);
+    this.car.applyUpgrades(getCarUpgradeStats(nextSave, this.currentSkin.id), this.currentSkin);
     this.saveAndNotify();
     return true;
   }
@@ -317,7 +384,7 @@ export class GameEngine {
   private cloneSaveData(data: PlayerSaveData): PlayerSaveData {
     return {
       ...data,
-      stats: { ...data.stats },
+      carUpgrades: cloneCarUpgrades(data.carUpgrades),
       unlockedSkinIds: [...data.unlockedSkinIds],
       settings: { ...data.settings },
     };
@@ -333,12 +400,34 @@ export class GameEngine {
   }
 
   private handleOrderComplete(order: Order, reward: number) {
+    order.perfectRide = isPerfectRide(order);
+    order.earnedXp = calculateOrderXp(order);
+    order.driverXpBefore = this.saveData.driverXp;
+    order.driverXpAfter = order.driverXpBefore + order.earnedXp;
+    order.levelBefore = levelFromXp(order.driverXpBefore);
+    order.levelAfter = levelFromXp(order.driverXpAfter);
     this.saveData = {
       ...this.saveData,
       coins: this.saveData.coins + reward,
       ordersCompleted: this.saveData.ordersCompleted + 1,
       highScore: Math.max(this.saveData.highScore, this.saveData.coins + reward),
+      driverXp: order.driverXpAfter,
+      totalEarnings: this.saveData.totalEarnings + reward,
+      perfectRides: this.saveData.perfectRides + (order.perfectRide ? 1 : 0),
+      vipRidesCompleted: this.saveData.vipRidesCompleted + (order.passengerType === 'VIP' ? 1 : 0),
     };
+    if (this.shiftStats) {
+      this.shiftStats.completedOrders += 1;
+      this.shiftStats.earnings += reward;
+      this.shiftStats.xpEarned += order.earnedXp;
+      this.shiftStats.totalRideQuality += order.rideQuality;
+      if (order.perfectRide) this.shiftStats.perfectRides += 1;
+      if (order.passengerType === 'VIP') {
+        this.shiftStats.vipRides += 1;
+        this.shiftStats.totalVipQuality += order.rideQuality;
+      }
+      if (order.rushSuccess) this.shiftStats.rushSuccesses += 1;
+    }
     this.saveAndNotify();
     this.completedRewards.set(order.id, reward);
     this.onOrderCompletePromptCallback?.(order, reward);
@@ -492,6 +581,16 @@ export class GameEngine {
     this.car.setRuntimePerformanceMultiplier(fuelSpeedMultiplier(this.saveData.fuel));
     const autoDock = this.passengerAutoDock.update(dt, this.car, this.orders.getCurrentOrder());
     if (!autoDock.controlsSuppressed) this.car.update(dt, input, this.map, this.currentSkin);
+    const cautiousAggression = getCautiousAggressionSeverity({
+      speed: this.car.speed,
+      maxSpeed: this.car.maxSpeed,
+      brake: input.brake,
+      steer: input.steer,
+      previousSteer: this.previousSteerInput,
+      dash: this.car.isDashing,
+    });
+    this.previousSteerInput = input.steer;
+    if (cautiousAggression > 0) this.orders.recordAggressiveDriving(dt, cautiousAggression);
     const nextFuel = consumeFuelForMovement(
       this.saveData.fuel,
       previousPosition,
@@ -567,7 +666,7 @@ export class GameEngine {
 
   private finishRecovery() {
     this.passengerAutoDock.cancel();
-    this.orders.refuseOrder();
+    if (this.orders.getCurrentOrder()) this.rejectOrder();
     this.car.recoverAt(3200 * CITY_GEOMETRY_SCALE, 2700 * CITY_GEOMETRY_SCALE, -Math.PI / 2);
     const penalty = Math.min(180, this.saveData.coins);
     this.saveData = { ...this.saveData, coins: this.saveData.coins - penalty };

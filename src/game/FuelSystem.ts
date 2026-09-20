@@ -1,6 +1,7 @@
 import type { PlayerSaveData, FuelStation } from '../types/game';
 import type { CityMap } from './CityMap';
 import { closestPointOnSegment, pointInRotatedRect } from './geometry';
+import { cloneCarUpgrades } from './CarUpgrades';
 
 export const FUEL_CAPACITY = 100;
 export const FULL_TANK_RANGE_WORLD_UNITS = 800_000;
@@ -62,7 +63,7 @@ export function createRefuelPurchase(saveData: PlayerSaveData): RefuelResult {
       ...saveData,
       coins: saveData.coins - cost,
       fuel: FUEL_CAPACITY,
-      stats: { ...saveData.stats },
+      carUpgrades: cloneCarUpgrades(saveData.carUpgrades),
       unlockedSkinIds: [...saveData.unlockedSkinIds],
       settings: { ...saveData.settings },
     },

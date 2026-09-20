@@ -1,3 +1,9 @@
+export interface CarUpgradeStats {
+  speedLevel: number;
+  handlingLevel: number;
+  dashLevel: number;
+}
+
 export interface PlayerSaveData {
   saveRevision: number;
   updatedAt: number;
@@ -5,11 +11,13 @@ export interface PlayerSaveData {
   fuel: number;
   ordersCompleted: number;
   highScore: number;
-  stats: {
-    speedLevel: number;
-    handlingLevel: number;
-    dashLevel: number;
-  };
+  driverXp: number;
+  totalEarnings: number;
+  perfectRides: number;
+  vipRidesCompleted: number;
+  totalShifts: number;
+  bestShiftScore: number;
+  carUpgrades: Record<string, CarUpgradeStats>;
   selectedSkinId: string;
   unlockedSkinIds: string[];
   settings: {
@@ -20,6 +28,9 @@ export interface PlayerSaveData {
     musicVolume: number;
   };
 }
+
+export type PassengerType = 'NORMAL' | 'VIP' | 'RUSH' | 'CAUTIOUS' | 'LONG_DISTANCE';
+export type ShiftRating = 'S' | 'A' | 'B' | 'C' | 'D';
 
 export type CarModelType =
   | 'sedan'
@@ -90,6 +101,8 @@ export interface FuelStation {
 export interface Order {
   id: string;
   passengerName: string;
+  passengerType: PassengerType;
+  passengerDialogue: string;
   pickupDistrict: string;
   destinationDistrict: string;
   pickupSpotName: string;
@@ -108,6 +121,15 @@ export interface Order {
   targetTime: number;
   pickupElapsed: number;
   rideElapsed: number;
+  rideQuality: number;
+  strongCollisions: number;
+  rushSuccess: boolean;
+  perfectRide: boolean;
+  earnedXp: number;
+  driverXpBefore: number;
+  driverXpAfter: number;
+  levelBefore: number;
+  levelAfter: number;
   status: 'pickup' | 'in_transit' | 'completed';
 }
 

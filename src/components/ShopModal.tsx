@@ -9,6 +9,7 @@ import { EXPERIMENTAL_CAR_CATALOG, getCatalogCarSkin, getCarCatalogEntry } from 
 import { calculateMaxSpeedForLevel } from '../game/Car';
 import { speedToKmh } from '../game/VehicleMetrics';
 import { CAR_LIFECYCLE_DEV_ENDPOINT } from '../game/carLifecycleEndpoint';
+import { getCarUpgradeStats } from '../game/CarUpgrades';
 
 type LifecycleDraft = { price: number; requiredOrders: number };
 
@@ -58,15 +59,16 @@ export function ShopModal({
   const currentPreviewCatalogEntry = getCarCatalogEntry(currentPreviewSkin.id);
   const baseMaxSpeedKmh = speedToKmh(currentPreviewSkin.maxSpeed);
   const levelFiveMaxSpeedKmh = speedToKmh(calculateMaxSpeedForLevel(currentPreviewSkin.maxSpeed, 5));
+  const activeUpgradeSkin = shopSkins.find(skin => skin.id === saveData.selectedSkinId) ?? shopSkins[0];
+  const activeUpgrades = getCarUpgradeStats(saveData, activeUpgradeSkin.id);
 
   const handleUpgrade = (type: 'speed' | 'handling' | 'dash') => {
     if (!engine) return;
-    const currentLevel =
-      type === 'speed'
-        ? saveData.stats.speedLevel
-        : type === 'handling'
-        ? saveData.stats.handlingLevel
-        : saveData.stats.dashLevel;
+    const currentLevel = type === 'speed'
+      ? activeUpgrades.speedLevel
+      : type === 'handling'
+        ? activeUpgrades.handlingLevel
+        : activeUpgrades.dashLevel;
 
     const cost = getUpgradeCost(type, currentLevel);
     if (cost === null || saveData.coins < cost) return;
@@ -499,6 +501,13 @@ export function ShopModal({
         {/* Содержимое вкладки: УЛУЧШЕНИЯ ХАРАКТЕРИСТИК */}
         {activeTab === 'upgrades' && (
           <div className="flex-1 overflow-y-auto pr-1 space-y-3">
+            <div className="rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-4 py-3">
+              <div className="text-[10px] font-black uppercase tracking-[0.2em] text-cyan-300">Tuning активной машины</div>
+              <div className="mt-1 text-sm font-black text-white">{activeUpgradeSkin.name}</div>
+              {currentPreviewSkin.id !== activeUpgradeSkin.id && (
+                <div className="mt-1 text-[11px] text-slate-400">Preview не выбран: улучшения применяются только к активной машине.</div>
+              )}
+            </div>
             {/* Скорость */}
             <div className="flex items-center justify-between p-4 rounded-xl bg-slate-800/60 border border-slate-700/70">
               <div className="flex items-center gap-3.5">
@@ -512,21 +521,21 @@ export function ShopModal({
                   <p className="text-xs text-slate-400 mt-0.5">
                     Увеличивает предельный разгон и мощность двигателя
                   </p>
-                  {renderLevelDots(saveData.stats.speedLevel)}
+                  {renderLevelDots(activeUpgrades.speedLevel)}
                 </div>
               </div>
 
-              {saveData.stats.speedLevel >= 5 ? (
+              {activeUpgrades.speedLevel >= 5 ? (
                 <span className="text-xs font-bold text-emerald-400 px-3 py-1.5 rounded-lg bg-emerald-950/60 border border-emerald-500/30">
                   МАКС. УРОВЕНЬ
                 </span>
               ) : (
                 <button
-                  disabled={saveData.coins < (getUpgradeCost('speed', saveData.stats.speedLevel) ?? 0)}
+                  disabled={saveData.coins < (getUpgradeCost('speed', activeUpgrades.speedLevel) ?? 0)}
                   onClick={() => handleUpgrade('speed')}
                   className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:bg-slate-800 disabled:text-slate-500 text-slate-950 text-xs font-bold transition-all shadow"
                 >
-                  <span>{getUpgradeCost('speed', saveData.stats.speedLevel)}</span>
+                  <span>{getUpgradeCost('speed', activeUpgrades.speedLevel)}</span>
                   <Coins className="w-3.5 h-3.5" />
                 </button>
               )}
@@ -545,21 +554,21 @@ export function ShopModal({
                   <p className="text-xs text-slate-400 mt-0.5">
                     Уменьшает занос в крутых поворотах и улучшает контроль
                   </p>
-                  {renderLevelDots(saveData.stats.handlingLevel)}
+                  {renderLevelDots(activeUpgrades.handlingLevel)}
                 </div>
               </div>
 
-              {saveData.stats.handlingLevel >= 5 ? (
+              {activeUpgrades.handlingLevel >= 5 ? (
                 <span className="text-xs font-bold text-emerald-400 px-3 py-1.5 rounded-lg bg-emerald-950/60 border border-emerald-500/30">
                   МАКС. УРОВЕНЬ
                 </span>
               ) : (
                 <button
-                  disabled={saveData.coins < (getUpgradeCost('handling', saveData.stats.handlingLevel) ?? 0)}
+                  disabled={saveData.coins < (getUpgradeCost('handling', activeUpgrades.handlingLevel) ?? 0)}
                   onClick={() => handleUpgrade('handling')}
                   className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:bg-slate-800 disabled:text-slate-500 text-slate-950 text-xs font-bold transition-all shadow"
                 >
-                  <span>{getUpgradeCost('handling', saveData.stats.handlingLevel)}</span>
+                  <span>{getUpgradeCost('handling', activeUpgrades.handlingLevel)}</span>
                   <Coins className="w-3.5 h-3.5" />
                 </button>
               )}
@@ -578,21 +587,21 @@ export function ShopModal({
                   <p className="text-xs text-slate-400 mt-0.5">
                     Сокращает время ожидания ускорения на [X]
                   </p>
-                  {renderLevelDots(saveData.stats.dashLevel)}
+                  {renderLevelDots(activeUpgrades.dashLevel)}
                 </div>
               </div>
 
-              {saveData.stats.dashLevel >= 5 ? (
+              {activeUpgrades.dashLevel >= 5 ? (
                 <span className="text-xs font-bold text-emerald-400 px-3 py-1.5 rounded-lg bg-emerald-950/60 border border-emerald-500/30">
                   МАКС. УРОВЕНЬ
                 </span>
               ) : (
                 <button
-                  disabled={saveData.coins < (getUpgradeCost('dash', saveData.stats.dashLevel) ?? 0)}
+                  disabled={saveData.coins < (getUpgradeCost('dash', activeUpgrades.dashLevel) ?? 0)}
                   onClick={() => handleUpgrade('dash')}
                   className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:bg-slate-800 disabled:text-slate-500 text-slate-950 text-xs font-bold transition-all shadow"
                 >
-                  <span>{getUpgradeCost('dash', saveData.stats.dashLevel)}</span>
+                  <span>{getUpgradeCost('dash', activeUpgrades.dashLevel)}</span>
                   <Coins className="w-3.5 h-3.5" />
                 </button>
               )}

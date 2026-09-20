@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { Coins, Play, CheckCircle2, Sparkles } from 'lucide-react';
+import { Award, Coins, Play, CheckCircle2, Sparkles, ShieldCheck, Star } from 'lucide-react';
 import type { Order } from '../types/game';
-import { getExpressEfficiency } from '../game/OrderEconomy';
+import { getExpressEfficiency, getRushEarlyMoneyBonus } from '../game/OrderEconomy';
 import { YandexAPI } from '../services/YandexAPI';
 import { AudioEngine } from '../game/AudioEngine';
+import { getPassengerDefinition } from '../game/PassengerSystem';
 
 interface OrderCompleteModalProps {
   isOpen: boolean;
@@ -32,6 +33,12 @@ export function OrderCompleteModal({
   }, [order?.id]);
 
   if (!isOpen || !order) return null;
+  const passenger = getPassengerDefinition(order.passengerType);
+  const rushEarlySeconds = order.passengerType === 'RUSH'
+    ? Math.max(0, order.targetTime - order.rideElapsed)
+    : 0;
+  const rushEarlyBonusPercent = Math.round(getRushEarlyMoneyBonus(order.rideElapsed, order.targetTime) * 100);
+  const didLevelUp = order.levelAfter > order.levelBefore;
 
   const finish = () => {
     if (closed.current) return;
@@ -83,14 +90,48 @@ export function OrderCompleteModal({
         </div>
 
         <h2 className="text-xl font-bold text-white tracking-tight">
-          {order.orderType === 'express' ? 'ЭКСПРЕСС ВЫПОЛНЕН' : 'ЗАКАЗ ВЫПОЛНЕН'}
+          {order.passengerType === 'RUSH' ? 'СРОЧНЫЙ ЗАКАЗ ВЫПОЛНЕН' : 'ЗАКАЗ ВЫПОЛНЕН'}
         </h2>
-        <p className="text-xs text-slate-400 mt-1">Пассажир успешно доставлен по адресу</p>
-        {order.orderType === 'express' && (
-          <div className="text-sm text-amber-300 mt-3">
-            Эффективность: {Math.round(getExpressEfficiency(order.rideElapsed, order.targetTime) * 100)}% · Время поездки: {order.rideElapsed.toFixed(1)} сек
+        <p className="text-xs text-slate-400 mt-1">{order.passengerName} · {passenger.icon} {passenger.displayName}</p>
+        {order.passengerType === 'RUSH' && (
+          <div className="mt-3 w-full rounded-xl border border-amber-400/25 bg-amber-500/10 p-3 text-left text-xs text-amber-100">
+            <div className="flex justify-between"><span>ЦЕЛЬ</span><b>{order.targetTime.toFixed(1)} сек</b></div>
+            <div className="mt-1 flex justify-between"><span>ВРЕМЯ</span><b>{order.rideElapsed.toFixed(1)} сек</b></div>
+            {rushEarlyBonusPercent > 0 ? (
+              <>
+                <div className="mt-1 flex justify-between"><span>РАНЬШЕ НА</span><b>{rushEarlySeconds.toFixed(1)} сек</b></div>
+                <div className="mt-1 flex justify-between text-amber-300"><span>EARLY BONUS</span><b>+{rushEarlyBonusPercent}%</b></div>
+              </>
+            ) : order.rushSuccess ? (
+              <div className="mt-1 font-black text-emerald-300">RUSH SUCCESS · БЕЗ EARLY BONUS</div>
+            ) : (
+              <div className="mt-1 flex justify-between"><span>ЭФФЕКТИВНОСТЬ</span><b>{Math.round(getExpressEfficiency(order.rideElapsed, order.targetTime) * 100)}%</b></div>
+            )}
           </div>
         )}
+
+        {didLevelUp && (
+          <div className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-fuchsia-400/35 bg-fuchsia-500/10 p-3 text-fuchsia-100">
+            <Award className="h-5 w-5 text-amber-300" />
+            <div className="text-left">
+              <div className="text-xs font-black text-amber-200">LEVEL UP!</div>
+              <div className="text-sm font-black">LEVEL {order.levelBefore} → LEVEL {order.levelAfter}</div>
+            </div>
+          </div>
+        )}
+
+        <div className="mt-3 grid w-full grid-cols-2 gap-2 text-left">
+          <div className="rounded-xl border border-slate-700 bg-slate-800/80 p-2.5">
+            <div className="flex items-center gap-1 text-[10px] font-bold text-slate-400"><ShieldCheck className="h-3.5 w-3.5" /> КАЧЕСТВО</div>
+            <div className="mt-1 font-black text-cyan-200">{order.rideQuality}%</div>
+          </div>
+          <div className="rounded-xl border border-slate-700 bg-slate-800/80 p-2.5">
+            <div className="flex items-center gap-1 text-[10px] font-bold text-slate-400"><Star className="h-3.5 w-3.5" /> XP</div>
+            <div className="mt-1 font-black text-fuchsia-200">+{order.earnedXp} XP</div>
+            <div className="mt-0.5 text-[9px] text-slate-500">ВСЕГО: {order.driverXpBefore} → {order.driverXpAfter}</div>
+          </div>
+        </div>
+        {order.perfectRide && <div className="mt-2 text-xs font-black tracking-wider text-emerald-300">PERFECT RIDE · БОНУС XP</div>}
 
         {/* Награда */}
         <div className="flex items-center gap-2 px-5 py-2.5 my-4 rounded-xl bg-slate-800 border border-slate-700">

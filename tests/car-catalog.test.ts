@@ -30,7 +30,9 @@ import { TestDriveSession } from '../src/game/TestDriveTrack';
 import { speedToKmh } from '../src/game/VehicleMetrics';
 import { DEFAULT_SAVE_DATA, migrateSaveData } from '../src/services/YandexAPI';
 
-const experimentalIds = ['mazda-rx7-fd', 'city-cruiser-taxi-v2', 'mercedes-amg', 'lamborghini'] as const;
+const experimentalIds = Object.entries(CAR_LIFECYCLE_CONFIG)
+  .filter(([, lifecycle]) => lifecycle.status === 'experimental')
+  .map(([id]) => id);
 const speedOrder = ['cruiser', 'mazda-rx7-fd', 'mercedes-amg', 'skyline-r34', 'lamborghini', 'aerocar'] as const;
 const throttle = { forward: 1, reverse: 0, steer: 0, brake: false, dash: false };
 
@@ -71,8 +73,10 @@ test('lifecycle JSON is the only source for status, price, and required orders',
       CAR_LIFECYCLE_CONFIG[entry.id],
     );
   }
-  assert.equal(CAR_LIFECYCLE_CONFIG['mercedes-amg'].price, 7000);
-  assert.equal(CAR_LIFECYCLE_CONFIG.lamborghini.requiredOrders, 65);
+  assert.deepEqual(
+    CAR_CATALOG.map(entry => entry.id),
+    Object.keys(CAR_LIFECYCLE_CONFIG),
+  );
 });
 
 test('Mercedes palette restores graphite body and bright red approved renderer graphics', () => {
@@ -130,7 +134,8 @@ test('Garage, engine, and Test Drive use the shared speed conversion and upgrade
 });
 
 test('experimental purchase is invalid; source promotion enables the normal purchase flow', () => {
-  const id = 'mercedes-amg';
+  const id = experimentalIds[0];
+  assert.ok(id, 'source lifecycle needs an experimental car for promotion coverage');
   assert.deepEqual(createSkinPurchase(migrateSaveData(DEFAULT_SAVE_DATA), id), { status: 'invalidSkin' });
 
   const promotedCatalog = buildCarCatalog(lifecycleWith(id, {
@@ -198,7 +203,8 @@ test('Test Drive tuning leaves career coins, ownership, selection, fuel, and upg
       fuel: 43,
       selectedSkinId: 'skyline-r34',
       unlockedSkinIds: ['cruiser', 'skyline-r34'],
-      stats: { speedLevel: 2, handlingLevel: 4, dashLevel: 3 },
+      carUpgrades: { ...structuredClone(DEFAULT_SAVE_DATA.carUpgrades),
+        'skyline-r34': { speedLevel: 2, handlingLevel: 4, dashLevel: 3 } },
     });
     const before = structuredClone(career);
     const session = new TestDriveSession(getCatalogCarSkin(id)!);

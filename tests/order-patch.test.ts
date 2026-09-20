@@ -117,6 +117,7 @@ test('delivery pays and persists once before modal; rewarded errors and duplicat
   assert.equal(modalSnapshot?.coins, 100 + reward);
   assert.equal(modalSnapshot?.ordersCompleted, 1);
   assert.ok(engine.saveData.saveRevision >= 1);
+  const xpAfterOrder = engine.saveData.driverXp;
   let adCallbacks: { reward?: () => void; close?: () => void; error?: (err: unknown) => void } = {};
   engine.yandexApi.registerMockAdTrigger((_type, rewardCallback, closeCallback, errorCallback) => {
     adCallbacks = { reward: rewardCallback, close: closeCallback, error: errorCallback };
@@ -137,6 +138,7 @@ test('delivery pays and persists once before modal; rewarded errors and duplicat
   adCallbacks.close?.();
   assert.equal(engine.claimRewardedBonus(order.id), false);
   assert.equal(engine.saveData.coins, 100 + reward * 2);
+  assert.equal(engine.saveData.driverXp, xpAfterOrder, 'rewarded ad must not award order XP again');
   assert.equal(migrateSaveData(JSON.parse(saved.get('NEON_TAXI_SAVE_V1')!)).coins, 100 + reward * 2);
   assert.equal(engine.orders.isShiftActive(), true);
   assert.equal(engine.orders.getCurrentOrder(), null);
@@ -146,19 +148,23 @@ test('delivery pays and persists once before modal; rewarded errors and duplicat
 test('save conflict picks one whole newer snapshot and migrates legacy ownership', () => {
   const local = { ...DEFAULT_SAVE_DATA, saveRevision: 12, updatedAt: 100,
     coins: 5000, selectedSkinId: 'sport', unlockedSkinIds: ['cruiser', 'sport'],
-    stats: { speedLevel: 4, handlingLevel: 2, dashLevel: 3 } };
+    carUpgrades: { ...structuredClone(DEFAULT_SAVE_DATA.carUpgrades),
+      sport: { speedLevel: 4, handlingLevel: 2, dashLevel: 3 } } };
   const cloud = { ...DEFAULT_SAVE_DATA, saveRevision: 9, updatedAt: 200, coins: 2800 };
   assert.equal(selectNewestSave(local, cloud).coins, 5000);
   assert.deepEqual(selectNewestSave(local, cloud).unlockedSkinIds, ['cruiser', 'sport']);
   assert.equal(selectNewestSave({ ...local, saveRevision: 5 }, { ...cloud, saveRevision: 8 }).coins, 2800);
   assert.equal(selectNewestSave({ ...local, saveRevision: 8 }, { ...cloud, saveRevision: 8 }).coins, 2800);
+  const legacyStats = { speedLevel: 4, handlingLevel: 2, dashLevel: 3 };
   const legacy = migrateSaveData({ coins: 321, selectedSkinId: 'sport',
-    unlockedSkinIds: ['cruiser', 'sport'], stats: local.stats });
+    unlockedSkinIds: ['cruiser', 'sport'], stats: legacyStats });
   assert.equal(legacy.saveRevision, 0);
   assert.equal(legacy.updatedAt, 0);
   assert.equal(legacy.coins, 321);
   assert.equal(legacy.selectedSkinId, 'sport');
-  assert.deepEqual(legacy.stats, local.stats);
+  assert.deepEqual(legacy.carUpgrades.sport, legacyStats);
+  assert.deepEqual(legacy.carUpgrades.cruiser, { speedLevel: 1, handlingLevel: 1, dashLevel: 1 });
+  assert.equal('stats' in legacy, false);
   assert.ok(legacy.unlockedSkinIds.includes('sport'));
 });
 

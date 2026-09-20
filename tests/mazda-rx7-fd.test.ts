@@ -30,19 +30,19 @@ function mockCanvasContext(): CanvasRenderingContext2D {
   });
 }
 
-test('Mazda is a Test Drive-only profile with no career commerce metadata', () => {
+test('Mazda Test Drive profile stays commerce-free while source lifecycle can publish its career skin', () => {
   assert.equal(MAZDA_RX7_FD_TEST_DRIVE_PROFILE.id, MAZDA_RX7_FD_TEST_DRIVE_ID);
   assert.equal(MAZDA_RX7_FD_TEST_DRIVE_PROFILE.name, 'Mazda RX-7 FD');
   assert.equal(MAZDA_RX7_FD_TEST_DRIVE_PROFILE.modelType, 'mazda-rx7-fd');
-  assert.equal(CAR_SKINS.some(skin => skin.id === MAZDA_RX7_FD_TEST_DRIVE_ID), false);
+  assert.equal(CAR_SKINS.some(skin => skin.id === MAZDA_RX7_FD_TEST_DRIVE_ID), true);
   assert.equal('price' in MAZDA_RX7_FD_TEST_DRIVE_PROFILE, false);
   assert.equal('requiredOrders' in MAZDA_RX7_FD_TEST_DRIVE_PROFILE, false);
   assert.deepEqual(createSkinPurchase(migrateSaveData(DEFAULT_SAVE_DATA), MAZDA_RX7_FD_TEST_DRIVE_ID), {
-    status: 'invalidSkin',
+    status: 'notEnoughOrders', required: 1, completed: 0,
   });
 });
 
-test('Mazda cannot become owned, selected, or persisted through save migration', () => {
+test('published Mazda ownership and selection survive save migration', () => {
   const migrated = migrateSaveData({
     ...DEFAULT_SAVE_DATA,
     coins: 9876,
@@ -50,8 +50,8 @@ test('Mazda cannot become owned, selected, or persisted through save migration',
     unlockedSkinIds: ['cruiser', MAZDA_RX7_FD_TEST_DRIVE_ID],
   });
   assert.equal(migrated.coins, 9876);
-  assert.equal(migrated.selectedSkinId, 'cruiser');
-  assert.deepEqual(migrated.unlockedSkinIds, ['cruiser']);
+  assert.equal(migrated.selectedSkinId, MAZDA_RX7_FD_TEST_DRIVE_ID);
+  assert.deepEqual(migrated.unlockedSkinIds, ['cruiser', MAZDA_RX7_FD_TEST_DRIVE_ID]);
 });
 
 test('Mazda has its own lightweight tune while preserving the intended sport speed tier', () => {
@@ -72,7 +72,8 @@ test('Mazda Test Drive starts at 1/1/1, reaches 5/5/5, and leaves career state u
     fuel: 37,
     selectedSkinId: 'skyline-r34',
     unlockedSkinIds: ['cruiser', 'skyline-r34'],
-    stats: { speedLevel: 2, handlingLevel: 3, dashLevel: 4 },
+    carUpgrades: { ...structuredClone(DEFAULT_SAVE_DATA.carUpgrades),
+      'skyline-r34': { speedLevel: 2, handlingLevel: 3, dashLevel: 4 } },
   });
   const before = JSON.stringify(career);
   const session = new TestDriveSession(MAZDA_RX7_FD_TEST_DRIVE_SKIN);

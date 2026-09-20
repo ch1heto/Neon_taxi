@@ -15,9 +15,11 @@ import { PlayerSaveData, Order } from './types/game';
 import { AudioEngine } from './game/AudioEngine';
 import { TEST_DRIVE_CAR_SKINS } from './game/CarCatalog';
 import { closestPointOnSegment } from './game/geometry';
-import { isDeveloperToolsAuthorized } from './config/adminAccess';
+import { DriverProfileModal } from './components/DriverProfileModal';
+import { ShiftResultModal } from './components/ShiftResultModal';
+import type { ShiftResult } from './game/ShiftSystem';
 
-const DEV_COMPONENTS_COMPILED = import.meta.env.DEV || import.meta.env.VITE_ENABLE_ADMIN_TOOLS === 'true';
+const DEV_COMPONENTS_COMPILED = import.meta.env.DEV;
 const DeveloperToolsButton = DEV_COMPONENTS_COMPILED
   ? lazy(() => import('./components/DeveloperToolsButton').then(module => ({ default: module.DeveloperToolsButton })))
   : null;
@@ -33,12 +35,15 @@ export default function App() {
   const engineRef = useRef<GameEngine | null>(null);
   const [saveData, setSaveData] = useState<PlayerSaveData>(DEFAULT_SAVE_DATA);
   const [isLoaded, setIsLoaded] = useState(false);
-  const [developerToolsEnabled, setDeveloperToolsEnabled] = useState(false);
+  const developerToolsEnabled = DEV_COMPONENTS_COMPILED;
 
   // Состояния модальных окон
   const [isShopOpen, setIsShopOpen] = useState(false);
   const [testDriveSkinId, setTestDriveSkinId] = useState<string | null>(null);
   const [isDebugOpen, setIsDebugOpen] = useState(false);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [shiftResult, setShiftResult] = useState<ShiftResult | null>(null);
+  const [openGarageAfterShift, setOpenGarageAfterShift] = useState(false);
   const [orderModalData, setOrderModalData] = useState<{ isOpen: boolean; reward: number; order: Order | null }>({
     isOpen: false,
     reward: 0,
@@ -66,23 +71,39 @@ export default function App() {
       if (qaMode === 'normal-order' || qaMode === 'express-order' || qaMode === 'active-order') {
         const order = eng.startShift();
         order.orderType = qaMode.startsWith('express') ? 'express' : 'normal';
+        order.passengerType = qaMode.startsWith('express') ? 'RUSH' : 'NORMAL';
         if (qaMode.startsWith('express')) {
           order.status = 'in_transit';
           order.rideElapsed = order.targetTime * 1.24;
         }
       }
-      if (qaMode === 'express-result') {
+      if (qaMode === 'express-result' || qaMode === 'rush-early-result') {
         requestAnimationFrame(() => {
           if (engineRef.current !== eng) return;
           const order = eng.startShift();
           order.orderType = 'express';
+          order.passengerType = 'RUSH';
           const pickup = eng.map.parkingZones.find(zone => zone.id === order.pickupZoneId)!;
           const destination = eng.map.parkingZones.find(zone => zone.id === order.destinationZoneId)!;
           const parked = (zone: typeof pickup) => ({ x: zone.x, y: zone.y, angle: zone.angle,
             vx: 0, vy: 0, length: eng.car.length, width: eng.car.width });
           for (let tick = 0; tick < 43 && order.status === 'pickup'; tick++) eng.orders.update(1 / 60, parked(pickup));
-          order.rideElapsed = order.targetTime * 1.23;
+          order.rideElapsed = order.targetTime * (qaMode === 'rush-early-result' ? 0.55 : 1.23);
           for (let tick = 0; tick < 43 && order.status === 'in_transit'; tick++) eng.orders.update(1 / 60, parked(destination));
+        });
+      }
+      if (qaMode === 'vip-collision-result') {
+        requestAnimationFrame(() => {
+          if (engineRef.current !== eng) return;
+          const order = eng.startShift();
+          order.passengerType = 'VIP';
+          order.orderType = 'normal';
+          order.status = 'in_transit';
+          eng.orders.recordStrongCollision(0.8);
+          const destination = eng.map.parkingZones.find(zone => zone.id === order.destinationZoneId)!;
+          const parked = { x: destination.x, y: destination.y, angle: destination.angle,
+            vx: 0, vy: 0, length: eng.car.length, width: eng.car.width };
+          for (let tick = 0; tick < 43 && order.status === 'in_transit'; tick++) eng.orders.update(1 / 60, parked);
         });
       }
       if (qaMode === 'fuel-station') {
@@ -126,10 +147,6 @@ export default function App() {
   useEffect(() => {
     let alive = true;
     const yapi = YandexAPI.getInstance();
-    const refreshDeveloperAccess = (playerId = yapi.getPlayerUniqueId()) => {
-      if (alive) setDeveloperToolsEnabled(isDeveloperToolsAuthorized(playerId));
-    };
-    const removeConnectionListener = yapi.onPlayerConnectionChange(refreshDeveloperAccess);
     const removeRecoveredDataListener = yapi.onRecoveredPlayerData(data => {
       if (!alive) return;
       const activeEngine = engineRef.current;
@@ -157,7 +174,6 @@ export default function App() {
     const initApp = async () => {
       try {
         await yapi.init();
-        refreshDeveloperAccess();
         const loadedData = await yapi.loadPlayerData();
         if (!alive) return;
         setSaveData(loadedData);
@@ -176,35 +192,44 @@ export default function App() {
 
     return () => {
       alive = false;
-      removeConnectionListener();
       removeRecoveredDataListener();
     };
   }, []);
 
   useEffect(() => {
     const yapi = YandexAPI.getInstance();
-    if (!developerToolsEnabled) {
+    if (!import.meta.env.DEV) {
       yapi.registerMockAdTrigger(null);
-      setIsDebugOpen(false);
-      setAdOverlayData(previous => ({ ...previous, isOpen: false }));
       return;
     }
     yapi.registerMockAdTrigger((type, onRewarded, onClose, onError) => {
       setAdOverlayData({ isOpen: true, type, onRewarded, onClose, onError });
     });
     return () => yapi.registerMockAdTrigger(null);
-  }, [developerToolsEnabled]);
+  }, []);
 
   // Управление паузой при открытии модалок
   useEffect(() => {
     if (!engine) return;
-    const anyModalOpen = isShopOpen || isDebugOpen || orderModalData.isOpen || adOverlayData.isOpen || testDriveSkinId !== null;
+    const anyModalOpen = isShopOpen || isDebugOpen || isProfileOpen || shiftResult !== null ||
+      orderModalData.isOpen || adOverlayData.isOpen || testDriveSkinId !== null;
     engine.setPaused(anyModalOpen);
-  }, [isShopOpen, isDebugOpen, orderModalData.isOpen, adOverlayData.isOpen, testDriveSkinId, engine]);
+  }, [isShopOpen, isDebugOpen, isProfileOpen, shiftResult, orderModalData.isOpen, adOverlayData.isOpen, testDriveSkinId, engine]);
 
   const handleOpenGarage = () => {
-    if (engine?.orders.getCurrentOrder() && !window.confirm('Отказаться от текущего заказа и закончить смену?')) return;
-    if (engine?.orders.getCurrentOrder()) engine.refuseOrder();
+    if (engine?.orders.isShiftActive()) {
+      const hasActiveOrder = Boolean(engine.orders.getCurrentOrder());
+      const prompt = hasActiveOrder
+        ? 'Текущий заказ будет отменён. Завершить смену и открыть гараж?'
+        : 'Завершить текущую смену и открыть гараж?';
+      if (!window.confirm(prompt)) return;
+      const result = hasActiveOrder ? engine.cancelCurrentOrderAndEndShift() : engine.endShift();
+      if (result) {
+        setOpenGarageAfterShift(true);
+        setShiftResult(result);
+        return;
+      }
+    }
     setIsShopOpen(true);
   };
 
@@ -222,8 +247,33 @@ export default function App() {
 
   const handleCloseOrderModal = () => {
     setOrderModalData({ isOpen: false, reward: 0, order: null });
-    engine?.requestNextOrder();
     if (engine && engine.saveData.ordersCompleted % 4 === 0) engine.yandexApi.showInterstitial();
+  };
+
+  const handleEndShift = () => {
+    const result = engine?.endShift() ?? null;
+    if (result) {
+      setOpenGarageAfterShift(false);
+      setShiftResult(result);
+    }
+  };
+
+  const handleDismissShiftResult = () => {
+    setShiftResult(null);
+    if (openGarageAfterShift) {
+      setOpenGarageAfterShift(false);
+      setIsShopOpen(true);
+    }
+  };
+
+  const handleShiftResultPrimary = () => {
+    setShiftResult(null);
+    if (openGarageAfterShift) {
+      setOpenGarageAfterShift(false);
+      setIsShopOpen(true);
+      return;
+    }
+    engine?.startShift();
   };
 
   const handleToggleSound = () => {
@@ -292,6 +342,8 @@ export default function App() {
         engine={engine}
         saveData={saveData}
         onOpenShop={handleOpenGarage}
+        onOpenProfile={() => setIsProfileOpen(true)}
+        onEndShift={handleEndShift}
         developerControls={developerToolsEnabled && DeveloperToolsButton
           ? <Suspense fallback={null}><DeveloperToolsButton onOpen={() => setIsDebugOpen(true)} /></Suspense>
           : null}
@@ -322,6 +374,19 @@ export default function App() {
         onClaim={handleClaimReward}
         order={orderModalData.order}
         onClose={handleCloseOrderModal}
+      />
+
+      <DriverProfileModal
+        isOpen={isProfileOpen}
+        saveData={saveData}
+        onClose={() => setIsProfileOpen(false)}
+      />
+
+      <ShiftResultModal
+        result={shiftResult}
+        onDismiss={handleDismissShiftResult}
+        onPrimary={handleShiftResultPrimary}
+        primaryLabel={openGarageAfterShift ? 'ОТКРЫТЬ ГАРАЖ' : 'НАЧАТЬ НОВУЮ СМЕНУ'}
       />
 
       {/* 5. Дебаггер Yandex SDK */}
