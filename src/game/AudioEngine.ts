@@ -79,7 +79,6 @@ export class AudioEngine {
   private musicSource: MediaElementAudioSourceNode | null = null;
   private loadedTrackId: string | null = null;
   private musicAudible = false;
-  private musicSwitchTimer: number | null = null;
   private proceduralTimer: number | null = null;
   private proceduralStep = 0;
   private nextProceduralNoteTime = 0;
@@ -194,17 +193,23 @@ export class AudioEngine {
 
   public getMusicState(): NeonFMState {
     const track = this.playlist.current;
-    const usingProceduralFallback = resolveMusicPlaybackMode(MUSIC_TRACKS) === 'procedural';
+    const usingProceduralFallback = resolveMusicPlaybackMode(
+      MUSIC_TRACKS,
+      this.playlist.unavailableTrackIds,
+    ) === 'procedural';
+    const displayedTrack = usingProceduralFallback
+      ? null
+      : track ?? MUSIC_TRACKS.find(candidate => !this.playlist.unavailableTrackIds.has(candidate.id)) ?? null;
     return {
       station: NEON_FM_STATION,
-      title: track?.title ?? PROCEDURAL_NEON_FM_PROGRAM.title,
-      artist: track?.artist ?? PROCEDURAL_NEON_FM_PROGRAM.artist,
-      hasTracks: this.playlist.count > 0 || usingProceduralFallback,
+      title: displayedTrack?.title ?? PROCEDURAL_NEON_FM_PROGRAM.title,
+      artist: displayedTrack?.artist ?? PROCEDURAL_NEON_FM_PROGRAM.artist,
+      hasTracks: true,
       isPlaying: (usingProceduralFallback ? this.proceduralPlaying : this.musicAudible) && this.musicEnabled,
       shuffle: this.playlist.isShuffleEnabled,
       trackIndex: this.playlist.currentIndex,
-      trackCount: this.playlist.count,
-      canSkip: this.playlist.count > 1,
+      trackCount: this.playlist.playableCount,
+      canSkip: this.playlist.playableCount > 1,
       usingProceduralFallback,
     };
   }
@@ -414,6 +419,7 @@ export class AudioEngine {
       this.musicElement = new Audio();
       this.musicElement.preload = 'metadata';
       this.musicElement.addEventListener('ended', () => this.nextMusicTrack());
+      this.musicElement.addEventListener('error', () => this.handleMusicTrackFailure());
       this.musicElement.addEventListener('pause', () => {
         this.musicAudible = false;
         this.emitMusicState();
@@ -458,12 +464,14 @@ export class AudioEngine {
 
   private syncMusicPlayback(fade = false): void {
     const shouldPlay = canMusicPlaybackRun(this.musicEnabled, this.isUnlocked, this.isLifecycleSuspended());
-    if (resolveMusicPlaybackMode(MUSIC_TRACKS) === 'procedural') {
+    if (resolveMusicPlaybackMode(MUSIC_TRACKS, this.playlist.unavailableTrackIds) === 'procedural') {
+      this.pauseMusicElement(false);
       if (shouldPlay) this.startProceduralMusic();
       else this.pauseProceduralMusic(fade);
       this.emitMusicState();
       return;
     }
+    this.pauseProceduralMusic(false);
     if (!this.musicElement) {
       this.musicAudible = false;
       this.emitMusicState();
@@ -481,7 +489,7 @@ export class AudioEngine {
 
   private switchMusicTrack(track: MusicTrack): void {
     if (!this.musicElement || !this.ctx || !this.musicFadeGain) return;
-    if (this.musicSwitchTimer !== null) window.clearTimeout(this.musicSwitchTimer);
+    this.pauseProceduralMusic(false);
     const load = () => {
       if (!this.musicElement || !this.ctx || !this.musicFadeGain) return;
       this.loadedTrackId = track.id;
@@ -499,10 +507,29 @@ export class AudioEngine {
     if (this.loadedTrackId) {
       const now = this.ctx.currentTime;
       this.musicFadeGain.gain.cancelScheduledValues(now);
-      this.musicFadeGain.gain.setValueAtTime(this.musicFadeGain.gain.value, now);
-      this.musicFadeGain.gain.linearRampToValueAtTime(0.0001, now + TRACK_FADE_SECONDS);
-      this.musicSwitchTimer = window.setTimeout(load, TRACK_FADE_SECONDS * 1000);
-    } else load();
+      this.musicFadeGain.gain.setValueAtTime(0.0001, now);
+    }
+    // Load inside the initiating click/ended callback so strict autoplay policies retain playback permission.
+    // The new source still receives the normal TRACK_FADE_SECONDS fade-in in load().
+    load();
+  }
+
+  private handleMusicTrackFailure(): void {
+    const failedTrack = MUSIC_TRACKS.find(track => track.id === this.loadedTrackId) ?? this.playlist.current;
+    if (!failedTrack || this.playlist.unavailableTrackIds.has(failedTrack.id)) return;
+    const mediaErrorCode = this.musicElement?.error?.code;
+    console.error(
+      `[AudioEngine] NEON FM failed to load "${failedTrack.title}" from ${failedTrack.file}`,
+      mediaErrorCode ? `(media error ${mediaErrorCode})` : '',
+    );
+
+    this.musicElement?.pause();
+    this.musicAudible = false;
+    this.loadedTrackId = null;
+    const nextTrack = this.playlist.markFailed(failedTrack.id);
+    if (nextTrack) this.switchMusicTrack(nextTrack);
+    else this.syncMusicPlayback(true);
+    this.emitMusicState();
   }
 
   private playMusicElement(): void {

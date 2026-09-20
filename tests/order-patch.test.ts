@@ -8,6 +8,7 @@ import { TestDriveSession } from '../src/game/TestDriveTrack';
 import { DEFAULT_SAVE_DATA, migrateSaveData, selectNewestSave } from '../src/services/YandexAPI';
 import { EXPRESS_MAX_MULTIPLIER, EXPRESS_MIN_MULTIPLIER, getExpressEfficiency,
   getNormalReward, getOrderReward, getRouteDistance, polylineDistance } from '../src/game/OrderEconomy';
+import { getContractDefinition } from '../src/game/ContractSystem';
 
 const parked = (zone: CityMap['parkingZones'][number]) => ({
   x: zone.x, y: zone.y, vx: 0, vy: 0, angle: zone.angle, length: 56, width: 30,
@@ -106,6 +107,10 @@ test('delivery pays and persists once before modal; rewarded errors and duplicat
   let modalSnapshot: ReturnType<typeof migrateSaveData> | null = null;
   engine.setOnOrderCompletePrompt(() => { modalSnapshot = migrateSaveData(JSON.parse(saved.get('NEON_TAXI_SAVE_V1')!)); });
   const order = engine.startShift();
+  const contractProgressBefore = new Map(
+    [engine.saveData.contracts.daily, engine.saveData.contracts.weekly]
+      .flatMap(state => state.items.map(item => [item.contractId, item.progress] as const)),
+  );
   const pickup = parked(engine.map.parkingZones.find(zone => zone.id === order.pickupZoneId)!);
   const destination = parked(engine.map.parkingZones.find(zone => zone.id === order.destinationZoneId)!);
   for (let tick = 0; tick < 43; tick++) engine.orders.update(1 / 60, pickup);
@@ -116,6 +121,24 @@ test('delivery pays and persists once before modal; rewarded errors and duplicat
   assert.equal(engine.saveData.ordersCompleted, 1);
   assert.equal(modalSnapshot?.coins, 100 + reward);
   assert.equal(modalSnapshot?.ordersCompleted, 1);
+  for (const period of ['daily', 'weekly'] as const) {
+    for (const item of engine.saveData.contracts[period].items) {
+      const definition = getContractDefinition(item.contractId)!;
+      const expectedIncrement = definition.type === 'completeOrders' ? 1
+        : definition.type === 'perfectRides' ? Number(order.perfectRide)
+          : definition.type === 'vipRides' ? Number(order.passengerType === 'VIP')
+            : definition.type === 'rushSuccesses' ? Number(order.rushSuccess)
+              : definition.type === 'rideEarnings' ? reward
+                : definition.type === 'cleanOrders' ? Number(order.strongCollisions === 0)
+                  : 0;
+      assert.equal(item.progress, Math.min(item.target, (contractProgressBefore.get(item.contractId) ?? 0) + expectedIncrement));
+      assert.equal(
+        modalSnapshot?.contracts[period].items.find(savedItem => savedItem.contractId === item.contractId)?.progress,
+        item.progress,
+        `${item.contractId} must be persisted before opening the order modal`,
+      );
+    }
+  }
   assert.ok(engine.saveData.saveRevision >= 1);
   const xpAfterOrder = engine.saveData.driverXp;
   let adCallbacks: { reward?: () => void; close?: () => void; error?: (err: unknown) => void } = {};

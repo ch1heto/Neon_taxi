@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Pause, Play, Settings2, Shuffle, SkipBack, SkipForward } from 'lucide-react';
 import { AudioEngine, type NeonFMState } from '../game/AudioEngine';
+import { MUSIC_CREDITS } from '../audio/musicTracks';
 import type { PlayerSaveData } from '../types/game';
 
 type VolumeKey = 'masterVolume' | 'engineVolume' | 'musicVolume';
@@ -122,6 +123,18 @@ export function NeonFMPlayer({ settings, onToggleMusic, onSetVolume }: NeonFMPla
               <span className="text-right tabular-nums text-cyan-200">{Math.round(draftVolumes[key] * 100)}</span>
             </label>
           ))}
+          <div id="music-credits" className="border-t border-slate-700/70 pt-2 text-[9px] text-slate-400">
+            <div className="mb-1 font-black tracking-[0.16em] text-cyan-300">МУЗЫКА / MUSIC CREDITS</div>
+            {MUSIC_CREDITS.map(credit => (
+              <div key={`${credit.artist}-${credit.title}`} className="flex items-start justify-between gap-3 py-0.5">
+                <span>{credit.title} — {credit.artist}</span>
+                <span className="shrink-0 text-right text-slate-500">
+                  <span className="block">{credit.license}</span>
+                  {credit.attribution && <span className="block">{credit.attribution}</span>}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </section>

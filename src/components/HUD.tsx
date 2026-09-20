@@ -10,6 +10,7 @@ import {
   MapPin,
   UserRound,
   Flag,
+  ClipboardList,
 } from 'lucide-react';
 import { PlayerSaveData, Order } from '../types/game';
 import { GameEngine, type FuelStationStatus } from '../game/GameEngine';
@@ -23,6 +24,7 @@ interface HUDProps {
   saveData: PlayerSaveData;
   onOpenShop: () => void;
   onOpenProfile: () => void;
+  onOpenContracts: () => void;
   onEndShift: () => void;
   developerControls?: ReactNode;
   onToggleSound: () => void;
@@ -40,6 +42,7 @@ export function HUD({
   saveData,
   onOpenShop,
   onOpenProfile,
+  onOpenContracts,
   onEndShift,
   developerControls,
   onToggleSound,
@@ -282,6 +285,16 @@ export function HUD({
           >
             <UserRound className="h-4 w-4 text-fuchsia-300" />
             <span className="hidden sm:inline">Водитель</span>
+          </button>
+
+          <button
+            id="hud-btn-contracts"
+            onClick={onOpenContracts}
+            aria-label="Задания"
+            className="flex items-center gap-2 rounded-xl border border-amber-400/30 bg-slate-900/90 px-3 py-2 text-xs font-bold text-slate-100 shadow-md transition-all hover:bg-slate-800 active:scale-95"
+          >
+            <ClipboardList className="h-4 w-4 text-amber-300" />
+            <span className="hidden lg:inline">Задания</span>
           </button>
 
           <button

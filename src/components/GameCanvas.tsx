@@ -158,6 +158,7 @@ export function GameCanvas({
     <canvas
       ref={canvasRef}
       id="game-canvas"
+      onContextMenu={event => event.preventDefault()}
       className="absolute inset-0 w-full h-full block bg-[#070a14] cursor-crosshair touch-none"
     />
   );

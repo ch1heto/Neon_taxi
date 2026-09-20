@@ -11,6 +11,8 @@ export class MusicPlaylist {
   private shuffleEnabled = true;
   private readonly history: number[] = [];
   private historyCursor = -1;
+  private readonly failedTrackIds = new Set<string>();
+  private shuffleBag: number[] = [];
 
   constructor(
     private readonly tracks: readonly MusicTrack[],
@@ -18,17 +20,19 @@ export class MusicPlaylist {
   ) {}
 
   public get count(): number { return this.tracks.length; }
+  public get playableCount(): number { return this.availableIndices().length; }
+  public get unavailableTrackIds(): ReadonlySet<string> { return this.failedTrackIds; }
   public get currentIndex(): number { return this.index; }
   public get current(): MusicTrack | null { return this.index >= 0 ? this.tracks[this.index] ?? null : null; }
   public get isPlaying(): boolean { return this.playing; }
   public get isShuffleEnabled(): boolean { return this.shuffleEnabled; }
 
   public play(): MusicTrack | null {
-    if (this.tracks.length === 0) {
+    if (this.playableCount === 0) {
       this.playing = false;
       return null;
     }
-    if (this.index < 0) this.selectInitialTrack();
+    if (this.index < 0 || !this.isIndexAvailable(this.index)) this.selectInitialTrack();
     this.playing = true;
     return this.current;
   }
@@ -39,14 +43,17 @@ export class MusicPlaylist {
 
   public setShuffle(enabled: boolean): void {
     this.shuffleEnabled = enabled;
+    this.shuffleBag = [];
   }
 
   public next(): MusicTrack | null {
-    if (this.tracks.length === 0) return null;
-    if (this.historyCursor < this.history.length - 1) {
-      this.historyCursor++;
-      this.index = this.history[this.historyCursor];
-      return this.current;
+    if (this.playableCount === 0) return null;
+    for (let cursor = this.historyCursor + 1; cursor < this.history.length; cursor++) {
+      if (this.isIndexAvailable(this.history[cursor])) {
+        this.historyCursor = cursor;
+        this.index = this.history[cursor];
+        return this.current;
+      }
     }
     const nextIndex = this.pickNextIndex(1);
     this.record(nextIndex);
@@ -54,33 +61,88 @@ export class MusicPlaylist {
   }
 
   public previous(): MusicTrack | null {
-    if (this.tracks.length === 0) return null;
-    if (this.historyCursor > 0) {
-      this.historyCursor--;
-      this.index = this.history[this.historyCursor];
-      return this.current;
+    if (this.playableCount === 0) return null;
+    for (let cursor = this.historyCursor - 1; cursor >= 0; cursor--) {
+      if (this.isIndexAvailable(this.history[cursor])) {
+        this.historyCursor = cursor;
+        this.index = this.history[cursor];
+        return this.current;
+      }
     }
     const previousIndex = this.pickNextIndex(-1);
     this.record(previousIndex);
     return this.current;
   }
 
+  /** Permanently excludes one broken source for this session and advances at most once. */
+  public markFailed(trackId: string): MusicTrack | null {
+    const failedIndex = this.tracks.findIndex(track => track.id === trackId);
+    if (failedIndex < 0 || this.failedTrackIds.has(trackId)) return this.current;
+    this.failedTrackIds.add(trackId);
+    this.shuffleBag = this.shuffleBag.filter(index => index !== failedIndex);
+    if (this.index !== failedIndex) return this.current;
+    if (this.playableCount === 0) {
+      this.index = -1;
+      return null;
+    }
+    const nextIndex = this.pickNextIndex(1);
+    this.record(nextIndex);
+    return this.current;
+  }
+
   private selectInitialTrack(): void {
-    const randomValue = clampAudioVolume(this.random());
-    const initialIndex = Math.min(this.tracks.length - 1, Math.floor(randomValue * this.tracks.length));
+    const initialIndex = this.shuffleEnabled
+      ? this.takeFromShuffleBag()
+      : this.availableIndices()[0];
     this.record(initialIndex);
   }
 
   private pickNextIndex(direction: 1 | -1): number {
-    if (this.index < 0) {
+    const available = this.availableIndices();
+    const currentPosition = available.indexOf(this.index);
+    if (currentPosition < 0) {
       const randomValue = clampAudioVolume(this.random());
-      return Math.min(this.tracks.length - 1, Math.floor(randomValue * this.tracks.length));
+      return available[Math.min(available.length - 1, Math.floor(randomValue * available.length))];
     }
-    if (this.tracks.length === 1) return 0;
-    if (!this.shuffleEnabled) return (this.index + direction + this.tracks.length) % this.tracks.length;
-    const randomValue = clampAudioVolume(this.random());
-    const offset = 1 + Math.min(this.tracks.length - 2, Math.floor(randomValue * (this.tracks.length - 1)));
-    return (this.index + (direction === 1 ? offset : -offset) + this.tracks.length) % this.tracks.length;
+    if (available.length === 1) return available[0];
+    if (!this.shuffleEnabled) {
+      return available[(currentPosition + direction + available.length) % available.length];
+    }
+    return this.takeFromShuffleBag();
+  }
+
+  private takeFromShuffleBag(): number {
+    this.shuffleBag = this.shuffleBag.filter(index => this.isIndexAvailable(index));
+    if (this.shuffleBag.length === 0) this.refillShuffleBag();
+    return this.shuffleBag.shift()!;
+  }
+
+  private refillShuffleBag(): void {
+    const bag = this.availableIndices();
+    for (let index = bag.length - 1; index > 0; index--) {
+      const randomValue = clampAudioVolume(this.random());
+      const swapIndex = Math.min(index, Math.floor(randomValue * (index + 1)));
+      [bag[index], bag[swapIndex]] = [bag[swapIndex], bag[index]];
+    }
+
+    if (bag.length > 1 && bag[0] === this.index) {
+      const replacement = bag.findIndex(candidate => candidate !== this.index);
+      [bag[0], bag[replacement]] = [bag[replacement], bag[0]];
+    }
+    this.shuffleBag = bag;
+  }
+
+  private availableIndices(): number[] {
+    const available: number[] = [];
+    for (let index = 0; index < this.tracks.length; index++) {
+      if (this.isIndexAvailable(index)) available.push(index);
+    }
+    return available;
+  }
+
+  private isIndexAvailable(index: number): boolean {
+    const track = this.tracks[index];
+    return Boolean(track && !this.failedTrackIds.has(track.id));
   }
 
   private record(index: number): void {

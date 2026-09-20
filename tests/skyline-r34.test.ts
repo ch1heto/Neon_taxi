@@ -28,7 +28,7 @@ function mockCanvasContext(): CanvasRenderingContext2D {
 test('Skyline remains a career skin whose commerce metadata comes from the catalog', () => {
   assert.ok(CAR_SKINS.length >= 6);
   assert.ok(skyline);
-  assert.equal(skyline.name, 'Nissan Skyline GT-R R34');
+  assert.equal(skyline.name, 'Missan Skylime HZR');
   assert.equal(skyline.modelType, 'skyline-r34');
   assert.ok(Number.isInteger(skyline.price) && skyline.price >= 0);
   assert.ok(Number.isInteger(skyline.requiredOrders) && skyline.requiredOrders >= 0);

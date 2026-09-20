@@ -31,8 +31,8 @@
   },
   "mazda-rx7-fd": {
     "status": "production",
-    "price": 1,
-    "requiredOrders": 1
+    "price": 4500,
+    "requiredOrders": 20
   },
   "city-cruiser-taxi-v2": {
     "status": "experimental",
@@ -41,12 +41,12 @@
   },
   "mercedes-amg": {
     "status": "production",
-    "price": 1,
-    "requiredOrders": 1
+    "price": 7000,
+    "requiredOrders": 30
   },
   "lamborghini": {
     "status": "production",
-    "price": 1,
-    "requiredOrders": 1
+    "price": 18000,
+    "requiredOrders": 65
   }
 }

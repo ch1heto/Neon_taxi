@@ -32,13 +32,13 @@ function mockCanvasContext(): CanvasRenderingContext2D {
 
 test('Mazda Test Drive profile stays commerce-free while source lifecycle can publish its career skin', () => {
   assert.equal(MAZDA_RX7_FD_TEST_DRIVE_PROFILE.id, MAZDA_RX7_FD_TEST_DRIVE_ID);
-  assert.equal(MAZDA_RX7_FD_TEST_DRIVE_PROFILE.name, 'Mazda RX-7 FD');
+  assert.equal(MAZDA_RX7_FD_TEST_DRIVE_PROFILE.name, 'Wazda MP-5');
   assert.equal(MAZDA_RX7_FD_TEST_DRIVE_PROFILE.modelType, 'mazda-rx7-fd');
   assert.equal(CAR_SKINS.some(skin => skin.id === MAZDA_RX7_FD_TEST_DRIVE_ID), true);
   assert.equal('price' in MAZDA_RX7_FD_TEST_DRIVE_PROFILE, false);
   assert.equal('requiredOrders' in MAZDA_RX7_FD_TEST_DRIVE_PROFILE, false);
   assert.deepEqual(createSkinPurchase(migrateSaveData(DEFAULT_SAVE_DATA), MAZDA_RX7_FD_TEST_DRIVE_ID), {
-    status: 'notEnoughOrders', required: 1, completed: 0,
+    status: 'notEnoughOrders', required: 20, completed: 0,
   });
 });
 

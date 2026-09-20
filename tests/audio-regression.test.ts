@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import test from 'node:test';
 import {
   CRUISE_VARIATION_LIMIT,
@@ -13,6 +13,7 @@ import {
 import { clampAudioVolume, MusicPlaylist } from '../src/audio/MusicPlaylist';
 import {
   MUSIC_TRACKS,
+  MUSIC_CREDITS,
   PROCEDURAL_NEON_FM_PROGRAM,
   canMusicPlaybackRun,
   resolveMusicPlaybackMode,
@@ -93,9 +94,20 @@ test('cruise variation is slow, non-static, finite, and bounded to a tiny range'
   assert.ok(maximum - minimum > 0.001, 'variation should not freeze at one pitch');
 });
 
-test('empty file manifest exposes procedural NEON FM while real files keep playlist mode', () => {
-  assert.equal(MUSIC_TRACKS.length, 0);
-  assert.equal(resolveMusicPlaybackMode(MUSIC_TRACKS), 'procedural');
+test('NEON FM manifest contains exactly the eight licensed production tracks', () => {
+  assert.equal(MUSIC_TRACKS.length, 8);
+  assert.deepEqual(MUSIC_TRACKS.map(track => [track.title, track.artist, track.file]), [
+    ['Machina', 'Scott Buckley', '/assets/music/scott-buckley-machina.mp3'],
+    ['Pure', 'Roa Music', '/assets/music/roa-music-pure.mp3'],
+    ['Summer Evening', 'Keys of Moon', '/assets/music/keys-of-moon-summer-evening.mp3'],
+    ['Aimless', 'Ketsa', '/assets/music/ketsa-aimless.mp3'],
+    ['Cities', 'Ketsa', '/assets/music/ketsa-cities.mp3'],
+    ['Falling Sky', 'Ketsa', '/assets/music/ketsa-falling-sky.mp3'],
+    ['Internal Backchat', 'Ketsa', '/assets/music/ketsa-internal-backchat.mp3'],
+    ['Lighting the Night', 'Ketsa', '/assets/music/ketsa-lighting-the-night.mp3'],
+  ]);
+  assert.ok(MUSIC_TRACKS.every(track => !/[\s\u0400-\u04ff]/u.test(track.file)));
+  assert.equal(resolveMusicPlaybackMode([]), 'procedural');
   assert.equal(resolveMusicPlaybackMode(tracks), 'playlist');
   assert.deepEqual(PROCEDURAL_NEON_FM_PROGRAM, {
     id: 'procedural-neon-drive',
@@ -105,11 +117,35 @@ test('empty file manifest exposes procedural NEON FM while real files keep playl
   });
 
   const radio = AudioEngine.getInstance().getMusicState();
-  assert.equal(radio.usingProceduralFallback, true);
+  assert.equal(radio.usingProceduralFallback, false);
   assert.equal(radio.hasTracks, true);
-  assert.equal(radio.canSkip, false);
-  assert.equal(radio.title, 'Neon Drive');
-  assert.equal(radio.artist, 'Neon Taxi');
+  assert.equal(radio.canSkip, true);
+  assert.equal(radio.trackCount, 8);
+  assert.equal(radio.title, 'Machina');
+  assert.equal(radio.artist, 'Scott Buckley');
+
+  for (const track of MUSIC_TRACKS) {
+    const sourceFile = new URL(`../public${track.file}`, import.meta.url);
+    assert.ok(statSync(sourceFile).size > 1_000_000, `${track.file} should be a bundled MP3`);
+  }
+});
+
+test('music credits contain every artist and required license', () => {
+  assert.deepEqual(MUSIC_CREDITS, [
+    { title: 'Machina', artist: 'Scott Buckley', license: 'CC BY 4.0' },
+    { title: 'Pure', artist: 'Roa Music', license: 'CC BY 3.0' },
+    { title: 'Summer Evening', artist: 'Keys of Moon', license: 'CC BY 4.0' },
+    { title: 'Aimless', artist: 'Ketsa', license: 'CC BY', attribution: 'Music by ketsa.uk' },
+    { title: 'Cities', artist: 'Ketsa', license: 'CC BY', attribution: 'Music by ketsa.uk' },
+    { title: 'Falling Sky', artist: 'Ketsa', license: 'CC BY', attribution: 'Music by ketsa.uk' },
+    { title: 'Internal Backchat', artist: 'Ketsa', license: 'CC BY', attribution: 'Music by ketsa.uk' },
+    { title: 'Lighting the Night', artist: 'Ketsa', license: 'CC BY', attribution: 'Music by ketsa.uk' },
+  ]);
+  const licenseText = readFileSync(new URL('../docs/MUSIC_LICENSES.txt', import.meta.url), 'utf8');
+  for (const credit of MUSIC_CREDITS) {
+    assert.match(licenseText, new RegExp(credit.artist));
+    assert.match(licenseText, new RegExp(credit.license.replace('.', '\\.')));
+  }
 });
 
 test('procedural station routes through fade, duck, MUSIC bus, and MASTER bus', () => {
@@ -136,11 +172,49 @@ test('music playlist is safe when empty and real-track pause/resume preserves th
   assert.equal(empty.current, null);
 
   const playlist = new MusicPlaylist(tracks, () => 0);
-  assert.equal(playlist.play()?.id, 'a');
+  const selectedTrackId = playlist.play()?.id;
+  assert.ok(selectedTrackId);
   playlist.pause();
   assert.equal(playlist.isPlaying, false);
-  assert.equal(playlist.play()?.id, 'a');
+  assert.equal(playlist.play()?.id, selectedTrackId);
   assert.equal(playlist.isPlaying, true);
+});
+
+test('failed tracks are skipped once and all failures activate procedural fallback', () => {
+  const playlist = new MusicPlaylist(tracks, () => 0);
+  playlist.setShuffle(false);
+  assert.equal(playlist.play()?.id, 'a');
+  assert.equal(playlist.markFailed('a')?.id, 'b');
+  assert.equal(playlist.playableCount, 2);
+  assert.equal(playlist.markFailed('b')?.id, 'c');
+  assert.equal(playlist.markFailed('c'), null);
+  assert.equal(playlist.playableCount, 0);
+  assert.equal(playlist.next(), null);
+  assert.equal(resolveMusicPlaybackMode(tracks, playlist.unavailableTrackIds), 'procedural');
+  assert.equal(playlist.markFailed('c'), null, 'a repeated error must not retry a failed track');
+});
+
+test('shuffle-bag plays every available track once per cycle without a boundary repeat', () => {
+  const playlist = new MusicPlaylist(MUSIC_TRACKS, () => 0);
+  const firstCycle = [playlist.play()!.id];
+  for (let index = 1; index < MUSIC_TRACKS.length; index++) firstCycle.push(playlist.next()!.id);
+  assert.equal(new Set(firstCycle).size, MUSIC_TRACKS.length);
+  assert.deepEqual(new Set(firstCycle), new Set(MUSIC_TRACKS.map(track => track.id)));
+
+  const secondCycle = [playlist.next()!.id];
+  assert.notEqual(secondCycle[0], firstCycle.at(-1));
+  for (let index = 1; index < MUSIC_TRACKS.length; index++) secondCycle.push(playlist.next()!.id);
+  assert.equal(new Set(secondCycle).size, MUSIC_TRACKS.length);
+  assert.deepEqual(new Set(secondCycle), new Set(MUSIC_TRACKS.map(track => track.id)));
+});
+
+test('shuffle-bag removes a failed track from the current and future cycles', () => {
+  const playlist = new MusicPlaylist(tracks, () => 0);
+  playlist.play();
+  playlist.markFailed('c');
+  const heard = Array.from({ length: 8 }, () => playlist.next()!.id);
+  assert.doesNotMatch(heard.join(','), /c/);
+  assert.deepEqual(new Set(heard), new Set(['a', 'b']));
 });
 
 test('shuffle never immediately repeats and next/previous retain history', () => {

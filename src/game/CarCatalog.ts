@@ -82,7 +82,7 @@ const STATIC_CAR_DEFINITIONS: readonly Readonly<StaticCarDefinition>[] = Object.
     dashPower: 455, dashCooldown: 3.35, speedBonus: 102, handlingBonus: 0.18,
   }),
   defineStaticCar({
-    id: 'skyline-r34', name: 'Nissan Skyline GT-R R34', modelType: 'skyline-r34',
+    id: 'skyline-r34', name: 'Missan Skylime HZR', modelType: 'skyline-r34',
     renderer: { type: 'canvas', draw: renderSkylineR34 }, physicsProvenance: 'sport-gt-tuning',
     description: 'Легендарное JDM-купе с серебристым кузовом, двойными синими полосами и большим GT-антикрылом.',
     primaryColor: '#A9BCD0', secondaryColor: '#0B4EDB', glowColor: 'rgba(0, 168, 255, 0.48)',
@@ -100,7 +100,7 @@ const STATIC_CAR_DEFINITIONS: readonly Readonly<StaticCarDefinition>[] = Object.
     dashPower: 520, dashCooldown: 2.8, speedBonus: 170, handlingBonus: 0.5,
   }),
   defineStaticCar({
-    id: 'mazda-rx7-fd', name: 'Mazda RX-7 FD', modelType: 'mazda-rx7-fd',
+    id: 'mazda-rx7-fd', name: 'Wazda MP-5', modelType: 'mazda-rx7-fd',
     renderer: { type: 'canvas', draw: renderMazdaRX7FD }, physicsProvenance: 'lightweight-sport-tuning',
     description: 'Экспериментальное низкое спорт-купе: плавный длинный капот, компактная кабина и большое заднее антикрыло.',
     primaryColor: '#C9152D', secondaryColor: '#171820', glowColor: 'rgba(255, 49, 95, 0.46)',
@@ -118,16 +118,16 @@ const STATIC_CAR_DEFINITIONS: readonly Readonly<StaticCarDefinition>[] = Object.
     dashPower: 350, dashCooldown: 4, speedBonus: 0, handlingBonus: 0.08,
   }),
   defineStaticCar({
-    id: 'mercedes-amg', name: 'Mercedes AMG', modelType: 'mercedes-amg',
+    id: 'mercedes-amg', name: 'Mercedep SLC', modelType: 'mercedes-amg',
     renderer: { type: 'canvas', draw: renderMercedesAMG }, physicsProvenance: 'power-gt-tuning',
-    description: 'Мощный AMG-inspired GT с высокой тягой, устойчивостью и более тяжёлой реакцией в поворотах.',
+    description: 'Мощный гран-турер с высокой тягой, устойчивостью и более тяжёлой реакцией в поворотах.',
     primaryColor: '#25282e', secondaryColor: '#ff2037', glowColor: 'rgba(255, 32, 55, 0.46)',
     trailColor: 'rgba(255, 32, 55, 0.42)', length: 52, width: 28,
     maxSpeed: 425, acceleration: 525, braking: 710, steering: 3.45, grip: 0.9, durability: 1.05,
     dashPower: 430, dashCooldown: 3.55, speedBonus: 85, handlingBonus: 0.18,
   }),
   defineStaticCar({
-    id: 'lamborghini', name: 'Lamborghini', modelType: 'lamborghini',
+    id: 'lamborghini', name: 'Landorgini Suini', modelType: 'lamborghini',
     renderer: { type: 'svg', assetUrl: LAMBORGHINI_SVG_VISUAL_SPEC.assetUrl, draw: lamborghiniRenderer },
     physicsProvenance: 'reactive-hypercar-tuning',
     description: 'Утверждённый SVG-гиперкар с высокой реактивностью и менее прощающим сцеплением.',

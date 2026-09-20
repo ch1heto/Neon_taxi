@@ -14,6 +14,9 @@ import { CAR_CATALOG } from '../game/CarCatalog';
 import { CAR_SKINS } from '../game/Skins';
 import { clampFuel, FUEL_CAPACITY } from '../game/FuelSystem';
 import { DEFAULT_CAR_UPGRADES, sanitizeCarUpgradeStats } from '../game/CarUpgrades';
+import { DEFAULT_GAME_LOCALE, resolveGameLocale, type GameLocale } from '../i18n/LocalizationService';
+import { createDefaultContractsState, sanitizeContractsState } from '../game/ContractSystem';
+import { getTrustedNow, setTrustedServerTime } from './TrustedTime';
 
 // Объявление глобального объекта YaGames из CDN скрипта https://yandex.ru/games/sdk/v2
 declare global {
@@ -25,11 +28,14 @@ declare global {
 }
 
 export interface YandexSDKInstance {
+  serverTime?: () => number;
+  on?: (eventName: 'game_api_pause' | 'game_api_resume', callback: () => void) => void;
+  off?: (eventName: 'game_api_pause' | 'game_api_resume', callback: () => void) => void;
   features?: { LoadingAPI?: { ready: () => void } };
-  environment: {
-    app: { id: string };
-    browser: { lang: string };
-    i18n: { lang: string; tld: string };
+  environment?: {
+    app?: { id: string };
+    browser?: { lang: string };
+    i18n?: { lang?: string; tld?: string };
   };
   deviceInfo: {
     type: string;
@@ -38,7 +44,7 @@ export interface YandexSDKInstance {
     isDesktop: () => boolean;
   };
   getPlayer: (options?: { scopes?: boolean }) => Promise<YandexPlayerInstance>;
-  adv: {
+  adv?: {
     showFullscreenAdv: (options?: {
       callbacks?: {
         onOpen?: () => void;
@@ -80,6 +86,7 @@ export const DEFAULT_SAVE_DATA: PlayerSaveData = {
   vipRidesCompleted: 0,
   totalShifts: 0,
   bestShiftScore: 0,
+  contracts: createDefaultContractsState(),
   carUpgrades: Object.fromEntries(CAR_CATALOG.map(car => [car.id, { ...DEFAULT_CAR_UPGRADES }])),
   selectedSkinId: 'cruiser',
   unlockedSkinIds: ['cruiser'],
@@ -108,6 +115,7 @@ export type LegacySaveDataInput = Partial<PlayerSaveData> & {
 export function migrateSaveData(
   data: LegacySaveDataInput | null | undefined,
   availableSkins: readonly { id: string }[] = CAR_SKINS,
+  date = getTrustedNow(),
 ): PlayerSaveData {
   const validSkinIds = new Set(availableSkins.map(skin => skin.id));
   const knownCarIds = new Set(CAR_CATALOG.map(car => car.id));
@@ -171,6 +179,7 @@ export function migrateSaveData(
     vipRidesCompleted: clampCounter(source.vipRidesCompleted),
     totalShifts: clampCounter(source.totalShifts),
     bestShiftScore: clampCounter(source.bestShiftScore, 100),
+    contracts: sanitizeContractsState(source.contracts, date),
     selectedSkinId,
     unlockedSkinIds: Array.from(new Set(unlockedSkinIds)),
     carUpgrades,
@@ -205,6 +214,22 @@ export const YANDEX_PLAYER_TIMEOUT_MS = 5_000;
 export const YANDEX_DATA_TIMEOUT_MS = 5_000;
 const INITIAL_RETRY_BACKOFF_MS = 750;
 const BACKGROUND_RECONNECT_DELAYS_MS = [2_000, 5_000, 10_000] as const;
+
+export function isDevelopmentRuntime(): boolean {
+  return typeof import.meta.env !== 'undefined'
+    ? Boolean(import.meta.env.DEV)
+    : typeof process !== 'undefined' && process.env.NODE_ENV !== 'production';
+}
+
+export function completeUnavailableInterstitial(
+  callbacks?: { onClose?: (wasShown: boolean) => void },
+): void {
+  callbacks?.onClose?.(false);
+}
+
+export function completeUnavailableRewarded(callbacks: AdCallbacks): void {
+  callbacks.onError?.(new Error('Rewarded ad unavailable'));
+}
 
 function withTimeout<T>(promise: Promise<T>, ms: number, timeoutMsg: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -262,6 +287,10 @@ export class YandexAPI {
   private reconnectTimer: number | null = null;
   private connectionPromise: Promise<boolean> | null = null;
   private recoveredDataListeners: Array<(data: PlayerSaveData) => void> = [];
+  private locale: GameLocale = DEFAULT_GAME_LOCALE;
+  private serverTimeResolved = false;
+  private sdkLifecycleEventsRegistered = false;
+  private readonly pauseReasons = new Set<string>();
 
   // Mock UI callback для визуализации рекламы в режиме тестирования
   private mockAdTrigger: ((type: 'rewarded' | 'interstitial', onRewarded?: () => void, onClose?: () => void, onError?: (err: unknown) => void) => void) | null = null;
@@ -278,9 +307,18 @@ export class YandexAPI {
   /**
    * Регистрация хуков паузы игры для корректного глушения звуков и остановки физики
    */
-  public registerGamePauseHooks(onPause: () => void, onResume: () => void) {
+  public registerGamePauseHooks(onPause: () => void, onResume: () => void): () => void {
     this.onPauseGameCallback = onPause;
     this.onResumeGameCallback = onResume;
+    if (this.pauseReasons.size > 0) onPause();
+    return () => {
+      if (this.onPauseGameCallback === onPause) this.onPauseGameCallback = null;
+      if (this.onResumeGameCallback === onResume) this.onResumeGameCallback = null;
+    };
+  }
+
+  public isLifecyclePaused(): boolean {
+    return this.pauseReasons.size > 0;
   }
 
   /**
@@ -294,22 +332,43 @@ export class YandexAPI {
   }
 
   private notifyAdState(isOpen: boolean, type: 'rewarded' | 'interstitial') {
-    if (isOpen) {
-      this.onPauseGameCallback?.();
-    } else {
-      this.onResumeGameCallback?.();
-    }
+    this.setPauseReason(`ad:${type}`, isOpen);
     this.adListeners.forEach(listener => listener(isOpen, type));
+  }
+
+  private setPauseReason(reason: string, paused: boolean): void {
+    const wasPaused = this.pauseReasons.size > 0;
+    if (paused) this.pauseReasons.add(reason);
+    else this.pauseReasons.delete(reason);
+    const isPaused = this.pauseReasons.size > 0;
+    if (isPaused === wasPaused) return;
+    if (isPaused) this.onPauseGameCallback?.();
+    else this.onResumeGameCallback?.();
+  }
+
+  private readonly handleSdkGamePause = () => this.setPauseReason('game-api', true);
+  private readonly handleSdkGameResume = () => this.setPauseReason('game-api', false);
+
+  private registerSdkLifecycleEvents(): void {
+    if (this.sdkLifecycleEventsRegistered || !this.ysdk?.on) return;
+    try {
+      this.ysdk.on('game_api_pause', this.handleSdkGamePause);
+      this.ysdk.on('game_api_resume', this.handleSdkGameResume);
+      this.sdkLifecycleEventsRegistered = true;
+    } catch (error) {
+      try {
+        this.ysdk.off?.('game_api_pause', this.handleSdkGamePause);
+        this.ysdk.off?.('game_api_resume', this.handleSdkGameResume);
+      } catch { /* best-effort cleanup for a partially supported event API */ }
+      console.warn('[YandexAPI] Game lifecycle events are unavailable:', error);
+    }
   }
 
   /**
    * Регистрация обработчика Mock-рекламы для визуализации в Dev-режиме
    */
   public registerMockAdTrigger(trigger: ((type: 'rewarded' | 'interstitial', onRewarded?: () => void, onClose?: () => void, onError?: (err: unknown) => void) => void) | null) {
-    const localDevRuntime = typeof import.meta.env !== 'undefined'
-      ? import.meta.env.DEV
-      : typeof process !== 'undefined' && process.env.NODE_ENV !== 'production';
-    this.mockAdTrigger = localDevRuntime ? trigger : null;
+    this.mockAdTrigger = isDevelopmentRuntime() ? trigger : null;
   }
 
   public onRecoveredPlayerData(listener: (data: PlayerSaveData) => void): () => void {
@@ -335,6 +394,25 @@ export class YandexAPI {
     }
   }
 
+  private synchronizeServerTime(): void {
+    if (this.serverTimeResolved) return;
+    this.serverTimeResolved = true;
+    if (!this.ysdk?.serverTime) {
+      setTrustedServerTime(undefined);
+      return;
+    }
+
+    try {
+      const serverTimestamp = this.ysdk.serverTime();
+      if (!setTrustedServerTime(serverTimestamp)) {
+        console.warn('[YandexAPI] serverTime returned an invalid value; using local time.');
+      }
+    } catch (error) {
+      setTrustedServerTime(undefined);
+      console.warn('[YandexAPI] serverTime unavailable; using local time:', error);
+    }
+  }
+
   private async establishConnection(attempts: number): Promise<boolean> {
     if (this.connectionPromise) return this.connectionPromise;
     this.connectionPromise = (async () => {
@@ -345,8 +423,14 @@ export class YandexAPI {
           { attempts, timeoutMs: YANDEX_SDK_INIT_TIMEOUT_MS, backoffMs: INITIAL_RETRY_BACKOFF_MS, label: 'YaGames.init' },
         );
       }
+      this.locale = resolveGameLocale(this.ysdk.environment?.i18n?.lang);
+      if (typeof document !== 'undefined' && document.documentElement) {
+        document.documentElement.lang = this.locale;
+      }
       this.isMockMode = false;
       this.trySignalLoadingReady();
+      this.synchronizeServerTime();
+      this.registerSdkLifecycleEvents();
       if (!this.player) await this.connectPlayer(attempts);
       return true;
     })().catch(error => {
@@ -379,6 +463,7 @@ export class YandexAPI {
   public async init(): Promise<boolean> {
     if (this.isInitialized) return true;
     if (getLocalStorageKey() === QA_STORAGE_KEY) {
+      setTrustedServerTime(undefined);
       this.isMockMode = true;
       this.isInitialized = true;
       return true;
@@ -394,8 +479,13 @@ export class YandexAPI {
       }
       throw new Error('YaGames script not available in window');
     } catch (error) {
+      setTrustedServerTime(undefined);
       console.warn('[YandexAPI] YaGames SDK пока недоступен, включен локальный fallback:', error);
-      this.isMockMode = true;
+      this.locale = resolveGameLocale();
+      if (typeof document !== 'undefined' && document.documentElement) {
+        document.documentElement.lang = this.locale;
+      }
+      this.isMockMode = isDevelopmentRuntime();
       this.isInitialized = true;
       this.scheduleConnectionRecovery();
       return true;
@@ -404,6 +494,10 @@ export class YandexAPI {
 
   public isMock(): boolean {
     return this.isMockMode;
+  }
+
+  public getLocale(): GameLocale {
+    return this.locale;
   }
 
   public signalLoadingReady(): void {
@@ -537,9 +631,8 @@ export class YandexAPI {
    * Показ Rewarded Video рекламы
    */
   public showRewardedVideo(callbacks: AdCallbacks): void {
-    this.notifyAdState(true, 'rewarded');
-
-    if (this.isMockMode || !this.ysdk) {
+    if (this.isMockMode && isDevelopmentRuntime()) {
+      this.notifyAdState(true, 'rewarded');
       console.log('[YandexAPI:Mock] Запуск симуляции Rewarded Video...');
       callbacks.onOpen?.();
 
@@ -560,6 +653,13 @@ export class YandexAPI {
       }
       return;
     }
+
+    if (!this.ysdk?.adv || typeof this.ysdk.adv.showRewardedVideo !== 'function') {
+      completeUnavailableRewarded(callbacks);
+      return;
+    }
+
+    this.notifyAdState(true, 'rewarded');
 
     // Боевой вызов через Yandex Games SDK v2
     try {
@@ -596,9 +696,8 @@ export class YandexAPI {
    * Показ Interstitial (полноэкранной) рекламы
    */
   public showInterstitial(callbacks?: { onOpen?: () => void; onClose?: (wasShown: boolean) => void; onError?: (err: unknown) => void }): void {
-    this.notifyAdState(true, 'interstitial');
-
-    if (this.isMockMode || !this.ysdk) {
+    if (this.isMockMode && isDevelopmentRuntime()) {
+      this.notifyAdState(true, 'interstitial');
       console.log('[YandexAPI:Mock] Запуск симуляции Interstitial Ad...');
       callbacks?.onOpen?.();
 
@@ -618,6 +717,13 @@ export class YandexAPI {
       }
       return;
     }
+
+    if (!this.ysdk?.adv || typeof this.ysdk.adv.showFullscreenAdv !== 'function') {
+      completeUnavailableInterstitial(callbacks);
+      return;
+    }
+
+    this.notifyAdState(true, 'interstitial');
 
     try {
       this.ysdk.adv.showFullscreenAdv({

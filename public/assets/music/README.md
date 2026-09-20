@@ -1,27 +1,20 @@
 # NEON FM music assets
 
-This directory is intentionally empty. Neon Taxi does not download or bundle commercial music.
+This release bundles eight files from the supplied Neon Taxi music archives:
 
-While the file manifest is empty, NEON FM automatically plays the built-in procedural
-`Neon Drive` synthwave program. Adding at least one manifest entry switches playback to
-the local-file playlist; the procedural program is not inserted as a fake playlist track.
+- `scott-buckley-machina.mp3` — **Machina**, Scott Buckley — CC BY 4.0
+- `roa-music-pure.mp3` — **Pure**, Roa Music — CC BY 3.0
+- `keys-of-moon-summer-evening.mp3` — **Summer Evening**, Keys of Moon — CC BY 4.0
+- `ketsa-aimless.mp3` — **Aimless**, Ketsa — CC BY — Music by ketsa.uk
+- `ketsa-cities.mp3` — **Cities**, Ketsa — CC BY — Music by ketsa.uk
+- `ketsa-falling-sky.mp3` — **Falling Sky**, Ketsa — CC BY — Music by ketsa.uk
+- `ketsa-internal-backchat.mp3` — **Internal Backchat**, Ketsa — CC BY — Music by ketsa.uk
+- `ketsa-lighting-the-night.mp3` — **Lighting the Night**, Ketsa — CC BY — Music by ketsa.uk
 
-Only add audio that is explicitly cleared for redistribution, such as:
+Attribution is required for every track. The supplied license records are preserved at
+`docs/MUSIC_LICENSES.txt`; retain that file and the in-game Music Credits when
+redistributing the game. The Ketsa pack records its official licensing and album URLs.
 
-- CC0 / public-domain recordings;
-- original music owned by the project;
-- royalty-free music whose license permits bundling in a web game.
-
-For every added file, keep its title, author/source, license, and source URL in this README (even when attribution is optional), then add one matching entry to `src/audio/musicTracks.ts`:
-
-```ts
-{
-  id: 'unique-track-id',
-  title: 'Track title',
-  artist: 'Artist',
-  file: '/assets/music/track-file.ogg',
-  station: 'NEON FM',
-}
-```
-
-Prefer `.ogg` plus a broadly compatible encoded source when required by the release targets. Verify browser playback and the license before publishing.
+NEON FM uses these local files through `src/audio/musicTracks.ts`. The built-in procedural
+**Neon Drive** program remains a runtime fallback when the playlist is empty or all real
+tracks fail to load; it is not an additional playlist entry.

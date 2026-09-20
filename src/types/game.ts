@@ -4,6 +4,26 @@ export interface CarUpgradeStats {
   dashLevel: number;
 }
 
+export type ContractPeriod = 'daily' | 'weekly';
+
+export interface ContractProgressItem {
+  contractId: string;
+  progress: number;
+  target: number;
+  completed: boolean;
+  claimed: boolean;
+}
+
+export interface ContractPeriodState {
+  periodKey: string;
+  items: ContractProgressItem[];
+}
+
+export interface ContractSaveState {
+  daily: ContractPeriodState;
+  weekly: ContractPeriodState;
+}
+
 export interface PlayerSaveData {
   saveRevision: number;
   updatedAt: number;
@@ -17,6 +37,7 @@ export interface PlayerSaveData {
   vipRidesCompleted: number;
   totalShifts: number;
   bestShiftScore: number;
+  contracts: ContractSaveState;
   carUpgrades: Record<string, CarUpgradeStats>;
   selectedSkinId: string;
   unlockedSkinIds: string[];

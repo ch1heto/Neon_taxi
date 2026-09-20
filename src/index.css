@@ -9,11 +9,11 @@
     overflow: hidden;
     overscroll-behavior: none;
     -webkit-touch-callout: none;
-    font-family: 'Rajdhani', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-family: 'Arial Narrow', 'Bahnschrift Condensed', 'Segoe UI', Arial, sans-serif;
   }
 
   .font-cyber {
-    font-family: 'Orbitron', monospace, sans-serif;
+    font-family: 'Bahnschrift', 'Arial Narrow', 'Segoe UI', Arial, sans-serif;
   }
 }
 

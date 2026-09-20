@@ -18,6 +18,8 @@ import { closestPointOnSegment } from './game/geometry';
 import { DriverProfileModal } from './components/DriverProfileModal';
 import { ShiftResultModal } from './components/ShiftResultModal';
 import type { ShiftResult } from './game/ShiftSystem';
+import { ContractsModal } from './components/ContractsModal';
+import type { ContractPeriod } from './types/game';
 
 const DEV_COMPONENTS_COMPILED = import.meta.env.DEV;
 const DeveloperToolsButton = DEV_COMPONENTS_COMPILED
@@ -42,6 +44,7 @@ export default function App() {
   const [testDriveSkinId, setTestDriveSkinId] = useState<string | null>(null);
   const [isDebugOpen, setIsDebugOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isContractsOpen, setIsContractsOpen] = useState(false);
   const [shiftResult, setShiftResult] = useState<ShiftResult | null>(null);
   const [openGarageAfterShift, setOpenGarageAfterShift] = useState(false);
   const [orderModalData, setOrderModalData] = useState<{ isOpen: boolean; reward: number; order: Order | null }>({
@@ -65,6 +68,7 @@ export default function App() {
   // Синхронизация ref с состоянием движка
   const handleEngineReady = (eng: GameEngine) => {
     engineRef.current = eng;
+    eng.setPlatformPaused(YandexAPI.getInstance().isLifecyclePaused());
     setEngine(eng);
     if (import.meta.env.DEV) {
       const qaMode = new URLSearchParams(window.location.search).get('qa');
@@ -161,12 +165,12 @@ export default function App() {
     });
 
     // 2. Регистрация хуков паузы игрового процесса при показе рекламы (через engineRef)
-    yapi.registerGamePauseHooks(
+    const removeGamePauseHooks = yapi.registerGamePauseHooks(
       () => {
-        engineRef.current?.setPaused(true);
+        engineRef.current?.setPlatformPaused(true);
       },
       () => {
-        engineRef.current?.setPaused(false);
+        engineRef.current?.setPlatformPaused(false);
       }
     );
 
@@ -193,6 +197,7 @@ export default function App() {
     return () => {
       alive = false;
       removeRecoveredDataListener();
+      removeGamePauseHooks();
     };
   }, []);
 
@@ -211,10 +216,19 @@ export default function App() {
   // Управление паузой при открытии модалок
   useEffect(() => {
     if (!engine) return;
-    const anyModalOpen = isShopOpen || isDebugOpen || isProfileOpen || shiftResult !== null ||
+    const anyModalOpen = isShopOpen || isDebugOpen || isProfileOpen || isContractsOpen || shiftResult !== null ||
       orderModalData.isOpen || adOverlayData.isOpen || testDriveSkinId !== null;
     engine.setPaused(anyModalOpen);
-  }, [isShopOpen, isDebugOpen, isProfileOpen, shiftResult, orderModalData.isOpen, adOverlayData.isOpen, testDriveSkinId, engine]);
+  }, [isShopOpen, isDebugOpen, isProfileOpen, isContractsOpen, shiftResult, orderModalData.isOpen, adOverlayData.isOpen, testDriveSkinId, engine]);
+
+  const handleOpenContracts = () => {
+    engine?.refreshContracts();
+    setIsContractsOpen(true);
+  };
+
+  const handleClaimContract = (period: ContractPeriod, contractId: string) => {
+    engine?.claimContractReward(period, contractId);
+  };
 
   const handleOpenGarage = () => {
     if (engine?.orders.isShiftActive()) {
@@ -343,6 +357,7 @@ export default function App() {
         saveData={saveData}
         onOpenShop={handleOpenGarage}
         onOpenProfile={() => setIsProfileOpen(true)}
+        onOpenContracts={handleOpenContracts}
         onEndShift={handleEndShift}
         developerControls={developerToolsEnabled && DeveloperToolsButton
           ? <Suspense fallback={null}><DeveloperToolsButton onOpen={() => setIsDebugOpen(true)} /></Suspense>
@@ -380,6 +395,13 @@ export default function App() {
         isOpen={isProfileOpen}
         saveData={saveData}
         onClose={() => setIsProfileOpen(false)}
+      />
+
+      <ContractsModal
+        isOpen={isContractsOpen}
+        saveData={saveData}
+        onClose={() => setIsContractsOpen(false)}
+        onClaim={handleClaimContract}
       />
 
       <ShiftResultModal

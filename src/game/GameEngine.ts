@@ -5,7 +5,7 @@ import { AudioEngine } from './AudioEngine';
 import { ParticleSystem } from './Particles';
 import { YandexAPI } from '../services/YandexAPI';
 import { CAR_SKINS, getUpgradeCost } from './Skins';
-import { PlayerSaveData, CarSkin, Order, CarUpgradeStats } from '../types/game';
+import { PlayerSaveData, CarSkin, Order, CarUpgradeStats, ContractPeriod } from '../types/game';
 export { speedToKmh } from './VehicleMetrics';
 import {
   clampFuel,
@@ -27,6 +27,12 @@ import {
   type ShiftResult,
   type ShiftStats,
 } from './ShiftSystem';
+import {
+  claimContractReward as createContractClaim,
+  recordContractProgress,
+  sanitizeContractsState,
+} from './ContractSystem';
+import { getTrustedNow } from '../services/TrustedTime';
 
 export interface GameInputState {
   forward: number;
@@ -161,6 +167,7 @@ export class GameEngine {
   private isPaused = false;
   private uiPaused = false;
   private visibilityPaused = false;
+  private platformPaused = false;
   private removeInputListeners: (() => void) | null = null;
   private removeVisibilityListener: (() => void) | null = null;
   private lastTime = 0;
@@ -274,7 +281,11 @@ export class GameEngine {
   public endShift(): ShiftResult | null {
     if (!this.shiftStats || !this.orders.endShift()) return null;
     const completion = completeShift(this.saveData, this.shiftStats);
-    this.saveData = completion.saveData;
+    this.saveData = recordContractProgress(completion.saveData, {
+      type: 'shiftCompleted',
+      rating: completion.result.rating,
+      completedOrders: completion.result.stats.completedOrders,
+    });
     this.shiftStats = null;
     this.saveAndNotify();
     return completion.result;
@@ -293,6 +304,23 @@ export class GameEngine {
     this.rewardedOrders.add(orderId);
     this.saveData = { ...this.saveData, coins: this.saveData.coins + reward,
       highScore: Math.max(this.saveData.highScore, this.saveData.coins + reward) };
+    this.saveAndNotify();
+    return true;
+  }
+
+  public refreshContracts(date = getTrustedNow()): PlayerSaveData {
+    const contracts = sanitizeContractsState(this.saveData.contracts, date);
+    if (JSON.stringify(contracts) !== JSON.stringify(this.saveData.contracts)) {
+      this.saveData = { ...this.saveData, contracts };
+      this.saveAndNotify();
+    }
+    return this.cloneSaveData(this.saveData);
+  }
+
+  public claimContractReward(period: ContractPeriod, contractId: string): boolean {
+    const result = createContractClaim(this.saveData, period, contractId);
+    if (result.status !== 'success') return false;
+    this.saveData = result.saveData;
     this.saveAndNotify();
     return true;
   }
@@ -386,6 +414,10 @@ export class GameEngine {
       ...data,
       carUpgrades: cloneCarUpgrades(data.carUpgrades),
       unlockedSkinIds: [...data.unlockedSkinIds],
+      contracts: {
+        daily: { ...data.contracts.daily, items: data.contracts.daily.items.map(item => ({ ...item })) },
+        weekly: { ...data.contracts.weekly, items: data.contracts.weekly.items.map(item => ({ ...item })) },
+      },
       settings: { ...data.settings },
     };
   }
@@ -406,7 +438,7 @@ export class GameEngine {
     order.driverXpAfter = order.driverXpBefore + order.earnedXp;
     order.levelBefore = levelFromXp(order.driverXpBefore);
     order.levelAfter = levelFromXp(order.driverXpAfter);
-    this.saveData = {
+    this.saveData = recordContractProgress({
       ...this.saveData,
       coins: this.saveData.coins + reward,
       ordersCompleted: this.saveData.ordersCompleted + 1,
@@ -415,7 +447,14 @@ export class GameEngine {
       totalEarnings: this.saveData.totalEarnings + reward,
       perfectRides: this.saveData.perfectRides + (order.perfectRide ? 1 : 0),
       vipRidesCompleted: this.saveData.vipRidesCompleted + (order.passengerType === 'VIP' ? 1 : 0),
-    };
+    }, {
+      type: 'orderCompleted',
+      earnings: reward,
+      perfectRide: order.perfectRide,
+      passengerType: order.passengerType,
+      rushSuccess: order.rushSuccess,
+      strongCollisions: order.strongCollisions,
+    });
     if (this.shiftStats) {
       this.shiftStats.completedOrders += 1;
       this.shiftStats.earnings += reward;
@@ -441,8 +480,16 @@ export class GameEngine {
     if (paused && this.fuelDirty) this.saveAndNotify();
   }
 
+  public setPlatformPaused(paused: boolean) {
+    if (this.platformPaused === paused) return;
+    this.platformPaused = paused;
+    this.refreshPauseState();
+    if (paused) this.passengerAutoDock.cancel();
+    if (paused && this.fuelDirty) this.saveAndNotify();
+  }
+
   private refreshPauseState() {
-    this.isPaused = this.uiPaused || this.visibilityPaused;
+    this.isPaused = this.uiPaused || this.visibilityPaused || this.platformPaused;
     this.audio.setMuted(this.isPaused);
   }
 

@@ -36,6 +36,7 @@ test('HUD omits the debug control unless privileged tools are authorized', () =>
     saveData: DEFAULT_SAVE_DATA,
     onOpenShop: () => {},
     onOpenProfile: () => {},
+    onOpenContracts: () => {},
     onEndShift: () => {},
     onToggleSound: () => {},
     onToggleMusic: () => {},
@@ -51,8 +52,8 @@ test('HUD omits the debug control unless privileged tools are authorized', () =>
   }));
   assert.doesNotMatch(productionMarkup, /hud-btn-debug/);
   assert.match(developerMarkup, /hud-btn-debug/);
-  assert.match(productionMarkup, /Neon Drive/);
-  assert.match(productionMarkup, /Neon Taxi/);
+  assert.match(productionMarkup, /Machina/);
+  assert.match(productionMarkup, /Scott Buckley/);
   assert.doesNotMatch(productionMarkup, /id="neon-fm-play"[^>]*disabled=""/);
 });
 
