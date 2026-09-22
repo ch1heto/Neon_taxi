@@ -5,6 +5,40 @@ export function clampAudioVolume(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
 
+export function clampPlaybackOffset(value: number, duration: number): number {
+  if (!Number.isFinite(value) || !Number.isFinite(duration) || duration <= 0) return 0;
+  return Math.max(0, Math.min(duration, value));
+}
+
+export function resolvePausedPlaybackOffset(
+  initialOffset: number,
+  startedAtAudioTime: number,
+  currentAudioTime: number,
+  duration: number,
+): number {
+  const elapsed = Number.isFinite(currentAudioTime) && Number.isFinite(startedAtAudioTime)
+    ? Math.max(0, currentAudioTime - startedAtAudioTime)
+    : 0;
+  return clampPlaybackOffset(initialOffset + elapsed, duration);
+}
+
+export function shouldAutoAdvanceMusicSource(
+  manuallyStopped: boolean,
+  sourceGeneration: number,
+  currentGeneration: number,
+): boolean {
+  return !manuallyStopped && sourceGeneration === currentGeneration;
+}
+
+export function isCurrentMusicLoad(
+  requestGeneration: number,
+  currentGeneration: number,
+  requestedTrackId: string,
+  currentTrackId: string | null,
+): boolean {
+  return requestGeneration === currentGeneration && requestedTrackId === currentTrackId;
+}
+
 export class MusicPlaylist {
   private index = -1;
   private playing = false;

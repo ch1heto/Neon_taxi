@@ -123,7 +123,7 @@ export function NeonFMPlayer({ settings, onToggleMusic, onSetVolume }: NeonFMPla
               <span className="text-right tabular-nums text-cyan-200">{Math.round(draftVolumes[key] * 100)}</span>
             </label>
           ))}
-          <div id="music-credits" className="border-t border-slate-700/70 pt-2 text-[9px] text-slate-400">
+          <div id="music-credits" className="max-h-44 overflow-y-auto border-t border-slate-700/70 pt-2 pr-1 text-[9px] text-slate-400">
             <div className="mb-1 font-black tracking-[0.16em] text-cyan-300">МУЗЫКА / MUSIC CREDITS</div>
             {MUSIC_CREDITS.map(credit => (
               <div key={`${credit.artist}-${credit.title}`} className="flex items-start justify-between gap-3 py-0.5">

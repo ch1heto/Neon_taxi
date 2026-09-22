@@ -6,9 +6,11 @@ import { resolveGameLocale } from '../src/i18n/LocalizationService';
 import {
   completeUnavailableInterstitial,
   completeUnavailableRewarded,
+  DEFAULT_SAVE_DATA,
+  resolveNextSaveTimestamp,
   YandexAPI,
 } from '../src/services/YandexAPI';
-import { getTrustedTimestamp, resetTrustedTime } from '../src/services/TrustedTime';
+import { getTrustedTimestamp, resetTrustedTime, setTrustedServerTime } from '../src/services/TrustedTime';
 
 const expectedCars = Object.freeze({
   'mazda-rx7-fd': { name: 'Wazda MP-5', price: 4500, requiredOrders: 20 },
@@ -101,6 +103,30 @@ test('Yandex serverTime is consumed synchronously once and invalid values fall b
     invalidInternals.synchronizeServerTime();
     assert.ok(getTrustedTimestamp() >= localBefore);
     assert.ok(getTrustedTimestamp() < localBefore + 1_000);
+  } finally {
+    resetTrustedTime();
+  }
+});
+
+test('new saves use a finite monotonic trusted timestamp without changing save compatibility', () => {
+  const serverTimestamp = Date.UTC(2029, 4, 6, 7, 8, 9);
+  try {
+    assert.equal(setTrustedServerTime(serverTimestamp), true);
+    const api = new (YandexAPI as unknown as { new(): YandexAPI })();
+    const first = api.prepareSaveData({ ...DEFAULT_SAVE_DATA });
+    const second = api.prepareSaveData(first);
+    assert.ok(Number.isFinite(first.updatedAt));
+    assert.ok(first.updatedAt >= serverTimestamp);
+    assert.ok(second.updatedAt >= first.updatedAt + 1);
+    assert.equal(first.saveRevision, 1);
+    assert.equal(second.saveRevision, 2);
+
+    resetTrustedTime();
+    const fallback = new (YandexAPI as unknown as { new(): YandexAPI })()
+      .prepareSaveData({ ...DEFAULT_SAVE_DATA, updatedAt: Number.NaN });
+    assert.ok(Number.isFinite(fallback.updatedAt));
+    assert.ok(fallback.updatedAt > 0);
+    assert.equal(resolveNextSaveTimestamp(Number.NaN, 100, 110), 111);
   } finally {
     resetTrustedTime();
   }

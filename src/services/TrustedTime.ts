@@ -26,9 +26,11 @@ function readPerformanceTimestamp(): number | null {
 }
 
 function sampleLocalTimestamp(sample?: TrustedTimeSample): number {
-  return typeof sample?.localTimestamp === 'number' && Number.isFinite(sample.localTimestamp)
-    ? sample.localTimestamp
-    : Date.now();
+  if (typeof sample?.localTimestamp === 'number' && Number.isFinite(sample.localTimestamp)) {
+    return sample.localTimestamp;
+  }
+  const localTimestamp = Date.now();
+  return Number.isFinite(localTimestamp) ? localTimestamp : MINIMUM_TRUSTED_TIMESTAMP;
 }
 
 function samplePerformanceTimestamp(sample?: TrustedTimeSample): number | null {
@@ -69,7 +71,7 @@ export function getTrustedTimestamp(sample?: TrustedTimeSample): number {
     }
   }
   const fallbackTimestamp = localTimestamp + localFallbackOffsetMs;
-  return Number.isFinite(fallbackTimestamp) ? fallbackTimestamp : localTimestamp;
+  return Number.isFinite(fallbackTimestamp) ? fallbackTimestamp : MINIMUM_TRUSTED_TIMESTAMP;
 }
 
 export function getTrustedNow(sample?: TrustedTimeSample): Date {

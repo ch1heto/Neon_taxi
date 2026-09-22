@@ -1,5 +1,12 @@
 import { EngineAudioModel, LEGACY_ENGINE_BASE_GAIN } from '../audio/EngineAudioModel';
-import { clampAudioVolume, MusicPlaylist } from '../audio/MusicPlaylist';
+import {
+  clampAudioVolume,
+  clampPlaybackOffset,
+  isCurrentMusicLoad,
+  MusicPlaylist,
+  resolvePausedPlaybackOffset,
+  shouldAutoAdvanceMusicSource,
+} from '../audio/MusicPlaylist';
 import {
   MUSIC_TRACKS,
   NEON_FM_STATION,
@@ -24,8 +31,20 @@ export interface NeonFMState {
 
 type MusicStateListener = (state: NeonFMState) => void;
 
+interface ActiveMusicSource {
+  source: AudioBufferSourceNode;
+  gain: GainNode;
+  trackId: string;
+  generation: number;
+  startedAtAudioTime: number;
+  initialOffset: number;
+  duration: number;
+  manuallyStopped: boolean;
+}
+
 const MUSIC_TRIM = 0.36;
 const TRACK_FADE_SECONDS = 0.42;
+const MAX_DECODED_MUSIC_BUFFERS = 2;
 const PROCEDURAL_MIX_GAIN = 0.62;
 const PROCEDURAL_STEP_SECONDS = 0.14;
 const PROCEDURAL_BASS_NOTES = Object.freeze([
@@ -75,9 +94,13 @@ export class AudioEngine {
 
   private readonly playlist = new MusicPlaylist(MUSIC_TRACKS);
   private readonly musicListeners = new Set<MusicStateListener>();
-  private musicElement: HTMLAudioElement | null = null;
-  private musicSource: MediaElementAudioSourceNode | null = null;
+  private readonly decodedMusicBuffers = new Map<string, AudioBuffer>();
+  private activeMusicSource: ActiveMusicSource | null = null;
+  private musicLoadAbortController: AbortController | null = null;
+  private musicLoadGeneration = 0;
+  private pendingTrackId: string | null = null;
   private loadedTrackId: string | null = null;
+  private playbackOffset = 0;
   private musicAudible = false;
   private proceduralTimer: number | null = null;
   private proceduralStep = 0;
@@ -414,23 +437,6 @@ export class AudioEngine {
     this.musicFadeGain.gain.value = 1;
     this.proceduralOutputGain.gain.value = PROCEDURAL_MIX_GAIN;
     this.applyMixerTargets();
-
-    if (this.playlist.count > 0 && typeof Audio !== 'undefined') {
-      this.musicElement = new Audio();
-      this.musicElement.preload = 'metadata';
-      this.musicElement.addEventListener('ended', () => this.nextMusicTrack());
-      this.musicElement.addEventListener('error', () => this.handleMusicTrackFailure());
-      this.musicElement.addEventListener('pause', () => {
-        this.musicAudible = false;
-        this.emitMusicState();
-      });
-      this.musicElement.addEventListener('playing', () => {
-        this.musicAudible = true;
-        this.emitMusicState();
-      });
-      this.musicSource = this.ctx.createMediaElementSource(this.musicElement);
-      this.musicSource.connect(this.musicFadeGain);
-    }
   }
 
   private applyMixerTargets(): void {
@@ -465,101 +471,188 @@ export class AudioEngine {
   private syncMusicPlayback(fade = false): void {
     const shouldPlay = canMusicPlaybackRun(this.musicEnabled, this.isUnlocked, this.isLifecycleSuspended());
     if (resolveMusicPlaybackMode(MUSIC_TRACKS, this.playlist.unavailableTrackIds) === 'procedural') {
-      this.pauseMusicElement(false);
+      this.pauseMusicBufferSource(false);
       if (shouldPlay) this.startProceduralMusic();
       else this.pauseProceduralMusic(fade);
       this.emitMusicState();
       return;
     }
     this.pauseProceduralMusic(false);
-    if (!this.musicElement) {
-      this.musicAudible = false;
-      this.emitMusicState();
-      return;
-    }
     if (!shouldPlay || !this.playlist.isPlaying) {
-      this.pauseMusicElement(fade);
+      this.pauseMusicBufferSource(fade);
       return;
     }
     const track = this.playlist.current ?? this.playlist.play();
     if (!track) return;
     if (this.loadedTrackId !== track.id) this.switchMusicTrack(track);
-    else this.playMusicElement();
+    else this.resumeMusicTrack(track);
   }
 
   private switchMusicTrack(track: MusicTrack): void {
-    if (!this.musicElement || !this.ctx || !this.musicFadeGain) return;
+    if (!this.ctx || !this.musicDuckGain) return;
     this.pauseProceduralMusic(false);
-    const load = () => {
-      if (!this.musicElement || !this.ctx || !this.musicFadeGain) return;
-      this.loadedTrackId = track.id;
-      this.musicElement.src = track.file;
-      this.musicElement.load();
-      const now = this.ctx.currentTime;
-      this.musicFadeGain.gain.cancelScheduledValues(now);
-      this.musicFadeGain.gain.setValueAtTime(0.0001, now);
-      this.musicFadeGain.gain.linearRampToValueAtTime(1, now + TRACK_FADE_SECONDS);
-      if (this.musicEnabled && this.playlist.isPlaying && this.isUnlocked && !this.isLifecycleSuspended()) {
-        this.playMusicElement();
-      }
-      this.emitMusicState();
-    };
-    if (this.loadedTrackId) {
-      const now = this.ctx.currentTime;
-      this.musicFadeGain.gain.cancelScheduledValues(now);
-      this.musicFadeGain.gain.setValueAtTime(0.0001, now);
-    }
-    // Load inside the initiating click/ended callback so strict autoplay policies retain playback permission.
-    // The new source still receives the normal TRACK_FADE_SECONDS fade-in in load().
-    load();
-  }
-
-  private handleMusicTrackFailure(): void {
-    const failedTrack = MUSIC_TRACKS.find(track => track.id === this.loadedTrackId) ?? this.playlist.current;
-    if (!failedTrack || this.playlist.unavailableTrackIds.has(failedTrack.id)) return;
-    const mediaErrorCode = this.musicElement?.error?.code;
-    console.error(
-      `[AudioEngine] NEON FM failed to load "${failedTrack.title}" from ${failedTrack.file}`,
-      mediaErrorCode ? `(media error ${mediaErrorCode})` : '',
-    );
-
-    this.musicElement?.pause();
-    this.musicAudible = false;
-    this.loadedTrackId = null;
-    const nextTrack = this.playlist.markFailed(failedTrack.id);
-    if (nextTrack) this.switchMusicTrack(nextTrack);
-    else this.syncMusicPlayback(true);
+    this.invalidatePendingMusicLoad();
+    this.stopActiveMusicSource(true, false);
+    this.playbackOffset = 0;
+    this.loadedTrackId = track.id;
+    const generation = this.musicLoadGeneration;
+    void this.loadAndStartMusicTrack(track, generation);
     this.emitMusicState();
   }
 
-  private playMusicElement(): void {
-    if (!this.musicElement) return;
-    if (this.ctx && this.musicFadeGain) {
-      const now = this.ctx.currentTime;
-      this.musicFadeGain.gain.cancelScheduledValues(now);
-      this.musicFadeGain.gain.setValueAtTime(this.musicFadeGain.gain.value, now);
-      this.musicFadeGain.gain.linearRampToValueAtTime(1, now + TRACK_FADE_SECONDS);
-    }
-    const playPromise = this.musicElement.play();
-    if (playPromise) playPromise.catch(() => {
-      this.musicAudible = false;
-      this.emitMusicState();
-    });
+  private resumeMusicTrack(track: MusicTrack): void {
+    if (this.activeMusicSource?.trackId === track.id || this.pendingTrackId === track.id) return;
+    this.invalidatePendingMusicLoad();
+    const generation = this.musicLoadGeneration;
+    void this.loadAndStartMusicTrack(track, generation);
   }
 
-  private pauseMusicElement(fade: boolean): void {
-    if (!this.musicElement) return;
-    if (!fade || !this.ctx || !this.musicFadeGain) {
-      this.musicElement.pause();
+  private async loadAndStartMusicTrack(track: MusicTrack, generation: number): Promise<void> {
+    if (!this.ctx) return;
+    this.pendingTrackId = track.id;
+    const cached = this.takeCachedMusicBuffer(track.id);
+    try {
+      const buffer = cached ?? await this.fetchAndDecodeMusicTrack(track, generation);
+      if (!buffer || !isCurrentMusicLoad(generation, this.musicLoadGeneration, track.id, this.loadedTrackId)) return;
+      if (!this.musicEnabled || !this.playlist.isPlaying || !this.isUnlocked || this.isLifecycleSuspended()) return;
+      this.startMusicBufferSource(track, buffer, generation);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return;
+      if (!isCurrentMusicLoad(generation, this.musicLoadGeneration, track.id, this.loadedTrackId)) return;
+      console.error(`[AudioEngine] NEON FM failed to load "${track.title}" from ${track.file}:`, error);
+      this.decodedMusicBuffers.delete(track.id);
+      this.loadedTrackId = null;
+      const nextTrack = this.playlist.markFailed(track.id);
+      if (nextTrack) this.switchMusicTrack(nextTrack);
+      else this.syncMusicPlayback(true);
+    } finally {
+      if (generation === this.musicLoadGeneration && this.pendingTrackId === track.id) this.pendingTrackId = null;
+      this.emitMusicState();
+    }
+  }
+
+  private async fetchAndDecodeMusicTrack(track: MusicTrack, generation: number): Promise<AudioBuffer | null> {
+    if (!this.ctx) return null;
+    const abortController = new AbortController();
+    this.musicLoadAbortController = abortController;
+    const response = await fetch(track.file, { signal: abortController.signal });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const encodedAudio = await response.arrayBuffer();
+    if (!isCurrentMusicLoad(generation, this.musicLoadGeneration, track.id, this.loadedTrackId)) return null;
+    const decoded = await this.ctx.decodeAudioData(encodedAudio);
+    if (!Number.isFinite(decoded.duration) || decoded.duration <= 0) throw new Error('Decoded audio buffer is invalid');
+    if (!isCurrentMusicLoad(generation, this.musicLoadGeneration, track.id, this.loadedTrackId)) return null;
+    this.cacheMusicBuffer(track.id, decoded);
+    return decoded;
+  }
+
+  private startMusicBufferSource(track: MusicTrack, buffer: AudioBuffer, generation: number): void {
+    if (!this.ctx || !this.musicDuckGain) return;
+    const offset = clampPlaybackOffset(this.playbackOffset, buffer.duration);
+    if (offset >= buffer.duration) {
+      this.playbackOffset = 0;
+      this.nextMusicTrack();
       return;
     }
     const now = this.ctx.currentTime;
-    this.musicFadeGain.gain.cancelScheduledValues(now);
-    this.musicFadeGain.gain.setValueAtTime(this.musicFadeGain.gain.value, now);
-    this.musicFadeGain.gain.linearRampToValueAtTime(0.0001, now + TRACK_FADE_SECONDS);
-    window.setTimeout(() => {
-      if (!this.musicEnabled || this.isLifecycleSuspended()) this.musicElement?.pause();
-    }, TRACK_FADE_SECONDS * 1000);
+    const source = this.ctx.createBufferSource();
+    const gain = this.ctx.createGain();
+    source.buffer = buffer;
+    source.connect(gain);
+    gain.connect(this.musicDuckGain);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.linearRampToValueAtTime(1, now + TRACK_FADE_SECONDS);
+
+    const active: ActiveMusicSource = {
+      source,
+      gain,
+      trackId: track.id,
+      generation,
+      startedAtAudioTime: now,
+      initialOffset: offset,
+      duration: buffer.duration,
+      manuallyStopped: false,
+    };
+    source.onended = () => {
+      gain.disconnect();
+      source.disconnect();
+      if (this.activeMusicSource === active) this.activeMusicSource = null;
+      if (!shouldAutoAdvanceMusicSource(active.manuallyStopped, active.generation, this.musicLoadGeneration)) return;
+      this.playbackOffset = 0;
+      this.musicAudible = false;
+      const nextTrack = this.playlist.next();
+      if (nextTrack) this.switchMusicTrack(nextTrack);
+      else this.syncMusicPlayback();
+      this.emitMusicState();
+    };
+    this.activeMusicSource = active;
+    this.playbackOffset = offset;
+    source.start(0, offset);
+    this.musicAudible = true;
+    this.emitMusicState();
+  }
+
+  private pauseMusicBufferSource(fade: boolean): void {
+    this.invalidatePendingMusicLoad();
+    this.stopActiveMusicSource(fade, true);
+    this.emitMusicState();
+  }
+
+  private stopActiveMusicSource(fade: boolean, preserveOffset: boolean): void {
+    const active = this.activeMusicSource;
+    if (!active || !this.ctx) {
+      this.musicAudible = false;
+      return;
+    }
+    active.manuallyStopped = true;
+    if (preserveOffset) {
+      this.playbackOffset = resolvePausedPlaybackOffset(
+        active.initialOffset,
+        active.startedAtAudioTime,
+        this.ctx.currentTime,
+        active.duration,
+      );
+    } else {
+      this.playbackOffset = 0;
+    }
+    this.activeMusicSource = null;
+    this.musicAudible = false;
+    const now = this.ctx.currentTime;
+    try {
+      active.gain.gain.cancelScheduledValues(now);
+      active.gain.gain.setValueAtTime(active.gain.gain.value, now);
+      if (fade) active.gain.gain.linearRampToValueAtTime(0.0001, now + TRACK_FADE_SECONDS);
+      active.source.stop(fade ? now + TRACK_FADE_SECONDS : now);
+    } catch {
+      active.gain.disconnect();
+      active.source.disconnect();
+    }
+  }
+
+  private invalidatePendingMusicLoad(): void {
+    this.musicLoadGeneration++;
+    this.musicLoadAbortController?.abort();
+    this.musicLoadAbortController = null;
+    this.pendingTrackId = null;
+  }
+
+  private takeCachedMusicBuffer(trackId: string): AudioBuffer | null {
+    const buffer = this.decodedMusicBuffers.get(trackId) ?? null;
+    if (buffer) {
+      this.decodedMusicBuffers.delete(trackId);
+      this.decodedMusicBuffers.set(trackId, buffer);
+    }
+    return buffer;
+  }
+
+  private cacheMusicBuffer(trackId: string, buffer: AudioBuffer): void {
+    this.decodedMusicBuffers.delete(trackId);
+    this.decodedMusicBuffers.set(trackId, buffer);
+    while (this.decodedMusicBuffers.size > MAX_DECODED_MUSIC_BUFFERS) {
+      const oldestTrackId = this.decodedMusicBuffers.keys().next().value as string | undefined;
+      if (!oldestTrackId) break;
+      this.decodedMusicBuffers.delete(oldestTrackId);
+    }
   }
 
   private startProceduralMusic(): void {
@@ -590,7 +683,7 @@ export class AudioEngine {
   }
 
   private pauseAllMusic(fade: boolean): void {
-    this.pauseMusicElement(fade);
+    this.pauseMusicBufferSource(fade);
     this.pauseProceduralMusic(fade);
     this.emitMusicState();
   }

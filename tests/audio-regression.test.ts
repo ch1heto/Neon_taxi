@@ -10,7 +10,14 @@ import {
   LEGACY_ENGINE_FILTER_SPAN,
   LEGACY_ENGINE_FREQUENCY_SPAN,
 } from '../src/audio/EngineAudioModel';
-import { clampAudioVolume, MusicPlaylist } from '../src/audio/MusicPlaylist';
+import {
+  clampAudioVolume,
+  clampPlaybackOffset,
+  isCurrentMusicLoad,
+  MusicPlaylist,
+  resolvePausedPlaybackOffset,
+  shouldAutoAdvanceMusicSource,
+} from '../src/audio/MusicPlaylist';
 import {
   MUSIC_TRACKS,
   MUSIC_CREDITS,
@@ -51,7 +58,7 @@ test('engine restores finite legacy speed curves with no runtime gear or RPM sta
 test('engine runtime has no repeating noise source or artificial gearbox implementation', () => {
   const audioSource = readFileSync(new URL('../src/game/AudioEngine.ts', import.meta.url), 'utf8');
   const modelSource = readFileSync(new URL('../src/audio/EngineAudioModel.ts', import.meta.url), 'utf8');
-  assert.doesNotMatch(audioSource, /engineNoise|createBufferSource\(\)|\.loop\s*=\s*true/);
+  assert.doesNotMatch(audioSource, /engineNoise|\.loop\s*=\s*true/);
   assert.doesNotMatch(modelSource, /gear|upshift|downshift|shiftDrop|ENGINE_MAX_RPM/i);
 });
 
@@ -107,6 +114,7 @@ test('NEON FM manifest contains exactly the eight licensed production tracks', (
     ['Lighting the Night', 'Ketsa', '/assets/music/ketsa-lighting-the-night.mp3'],
   ]);
   assert.ok(MUSIC_TRACKS.every(track => !/[\s\u0400-\u04ff]/u.test(track.file)));
+  assert.equal(new Set(MUSIC_TRACKS.map(track => track.id)).size, MUSIC_TRACKS.length);
   assert.equal(resolveMusicPlaybackMode([]), 'procedural');
   assert.equal(resolveMusicPlaybackMode(tracks), 'playlist');
   assert.deepEqual(PROCEDURAL_NEON_FM_PROGRAM, {
@@ -141,11 +149,23 @@ test('music credits contain every artist and required license', () => {
     { title: 'Internal Backchat', artist: 'Ketsa', license: 'CC BY', attribution: 'Music by ketsa.uk' },
     { title: 'Lighting the Night', artist: 'Ketsa', license: 'CC BY', attribution: 'Music by ketsa.uk' },
   ]);
-  const licenseText = readFileSync(new URL('../docs/MUSIC_LICENSES.txt', import.meta.url), 'utf8');
+  const licenseText = readFileSync(new URL('../public/THIRD_PARTY_MUSIC_LICENSES.md', import.meta.url), 'utf8');
   for (const credit of MUSIC_CREDITS) {
     assert.match(licenseText, new RegExp(credit.artist));
     assert.match(licenseText, new RegExp(credit.license.replace('.', '\\.')));
   }
+});
+
+test('NEON FM real tracks use Web Audio buffers through the MUSIC mixer with a two-buffer cache', () => {
+  const source = readFileSync(new URL('../src/game/AudioEngine.ts', import.meta.url), 'utf8');
+  assert.match(source, /fetch\(track\.file/);
+  assert.match(source, /decodeAudioData\(encodedAudio\)/);
+  assert.match(source, /createBufferSource\(\)/);
+  assert.match(source, /source\.connect\(gain\)/);
+  assert.match(source, /gain\.connect\(this\.musicDuckGain\)/);
+  assert.match(source, /MAX_DECODED_MUSIC_BUFFERS = 2/);
+  assert.doesNotMatch(source, /new Audio\s*\(|HTMLAudioElement|createMediaElementSource|createElement\(['"]audio/);
+  assert.doesNotMatch(source, /source\.connect\(this\.ctx\.destination\)/);
 });
 
 test('procedural station routes through fade, duck, MUSIC bus, and MASTER bus', () => {
@@ -178,6 +198,25 @@ test('music playlist is safe when empty and real-track pause/resume preserves th
   assert.equal(playlist.isPlaying, false);
   assert.equal(playlist.play()?.id, selectedTrackId);
   assert.equal(playlist.isPlaying, true);
+});
+
+test('Web Audio playback cursor clamps offsets and preserves a finite pause position', () => {
+  assert.equal(clampPlaybackOffset(-5, 120), 0);
+  assert.equal(clampPlaybackOffset(30, 120), 30);
+  assert.equal(clampPlaybackOffset(500, 120), 120);
+  assert.equal(clampPlaybackOffset(Number.NaN, 120), 0);
+  assert.equal(clampPlaybackOffset(20, Number.POSITIVE_INFINITY), 0);
+  assert.equal(resolvePausedPlaybackOffset(12, 100, 108.5, 120), 20.5);
+  assert.equal(resolvePausedPlaybackOffset(118, 100, 108.5, 120), 120);
+});
+
+test('only a natural current source end advances and stale loads cannot start', () => {
+  assert.equal(shouldAutoAdvanceMusicSource(false, 7, 7), true);
+  assert.equal(shouldAutoAdvanceMusicSource(true, 7, 7), false);
+  assert.equal(shouldAutoAdvanceMusicSource(false, 6, 7), false);
+  assert.equal(isCurrentMusicLoad(4, 4, 'track-b', 'track-b'), true);
+  assert.equal(isCurrentMusicLoad(3, 4, 'track-b', 'track-b'), false);
+  assert.equal(isCurrentMusicLoad(4, 4, 'track-a', 'track-b'), false);
 });
 
 test('failed tracks are skipped once and all failures activate procedural fallback', () => {

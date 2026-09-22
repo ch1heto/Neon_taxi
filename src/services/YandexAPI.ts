@@ -16,7 +16,7 @@ import { clampFuel, FUEL_CAPACITY } from '../game/FuelSystem';
 import { DEFAULT_CAR_UPGRADES, sanitizeCarUpgradeStats } from '../game/CarUpgrades';
 import { DEFAULT_GAME_LOCALE, resolveGameLocale, type GameLocale } from '../i18n/LocalizationService';
 import { createDefaultContractsState, sanitizeContractsState } from '../game/ContractSystem';
-import { getTrustedNow, setTrustedServerTime } from './TrustedTime';
+import { getTrustedNow, getTrustedTimestamp, setTrustedServerTime } from './TrustedTime';
 
 // Объявление глобального объекта YaGames из CDN скрипта https://yandex.ru/games/sdk/v2
 declare global {
@@ -270,6 +270,17 @@ export class SerializedSaveQueue {
   }
 }
 
+export function resolveNextSaveTimestamp(
+  trustedTimestamp: number,
+  lastIssuedTimestamp: number,
+  existingTimestamp = 0,
+): number {
+  const trusted = Number.isFinite(trustedTimestamp) ? Math.max(0, trustedTimestamp) : 0;
+  const lastIssued = Number.isFinite(lastIssuedTimestamp) ? Math.max(0, lastIssuedTimestamp) : 0;
+  const existing = Number.isFinite(existingTimestamp) ? Math.max(0, existingTimestamp) : 0;
+  return Math.max(trusted, lastIssued + 1, existing + 1);
+}
+
 export class YandexAPI {
   private static instance: YandexAPI;
   private ysdk: YandexSDKInstance | null = null;
@@ -281,6 +292,7 @@ export class YandexAPI {
   private onResumeGameCallback: (() => void) | null = null;
   private saveQueue = new SerializedSaveQueue();
   private latestRevision = 0;
+  private lastIssuedSaveTimestamp = 0;
   private loadingReadySent = false;
   private gameReady = false;
   private reconnectAttempt = 0;
@@ -515,7 +527,12 @@ export class YandexAPI {
   public prepareSaveData(data: PlayerSaveData): PlayerSaveData {
     const snapshot = migrateSaveData(data);
     this.latestRevision = Math.max(this.latestRevision, snapshot.saveRevision) + 1;
-    return { ...snapshot, saveRevision: this.latestRevision, updatedAt: Date.now() };
+    this.lastIssuedSaveTimestamp = resolveNextSaveTimestamp(
+      getTrustedTimestamp(),
+      this.lastIssuedSaveTimestamp,
+      snapshot.updatedAt,
+    );
+    return { ...snapshot, saveRevision: this.latestRevision, updatedAt: this.lastIssuedSaveTimestamp };
   }
 
   public isMobile(): boolean {
@@ -569,6 +586,7 @@ export class YandexAPI {
     const cloudData = await this.fetchCloudData(2);
     const merged = selectNewestSave(localData, cloudData);
     this.latestRevision = Math.max(this.latestRevision, merged.saveRevision);
+    this.lastIssuedSaveTimestamp = Math.max(this.lastIssuedSaveTimestamp, merged.updatedAt);
     this.writeLocalData(merged);
     const cloudRevision = Number.isFinite(cloudData?.saveRevision) ? Number(cloudData?.saveRevision) : 0;
     const cloudUpdatedAt = Number.isFinite(cloudData?.updatedAt) ? Number(cloudData?.updatedAt) : 0;
@@ -591,6 +609,7 @@ export class YandexAPI {
 
     const merged = selectNewestSave(localData, cloudData);
     this.latestRevision = merged.saveRevision;
+    this.lastIssuedSaveTimestamp = Math.max(this.lastIssuedSaveTimestamp, merged.updatedAt);
 
     // Синхронизируем локальный сторадж с объединенными данными
     this.writeLocalData(merged);
