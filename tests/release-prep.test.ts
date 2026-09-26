@@ -13,10 +13,16 @@ import {
 import { getTrustedTimestamp, resetTrustedTime, setTrustedServerTime } from '../src/services/TrustedTime';
 
 const expectedCars = Object.freeze({
-  'mazda-rx7-fd': { name: 'Wazda MP-5', price: 4500, requiredOrders: 20 },
-  'mercedes-amg': { name: 'Mercedep SLC', price: 7000, requiredOrders: 30 },
+  cruiser: { name: 'City Cruiser Taxi', price: 0, requiredOrders: 0 },
+  sport: { name: 'Cyber GT Coupe', price: 1000, requiredOrders: 8 },
+  'city-cruiser-taxi-v2': { name: 'City Cruiser Taxi V2', price: 1500, requiredOrders: 12 },
+  suv: { name: 'Titan 4x4 Enforcer', price: 3000, requiredOrders: 18 },
+  'mazda-rx7-fd': { name: 'Wazda MP-5', price: 4500, requiredOrders: 24 },
+  hyper: { name: 'Veloce Hyper-V', price: 6500, requiredOrders: 32 },
+  'mercedes-amg': { name: 'Mercedep SLC', price: 8000, requiredOrders: 38 },
   'skyline-r34': { name: 'Missan Skylime HZR', price: 12000, requiredOrders: 48 },
   lamborghini: { name: 'Landorgini Suini', price: 18000, requiredOrders: 65 },
+  aerocar: { name: 'Phantom Blade VIP', price: 15000, requiredOrders: 55 },
 });
 
 test('public car names and production prices change without changing stable ids', () => {
@@ -28,7 +34,7 @@ test('public car names and production prices change without changing stable ids'
       { name: car.name, price: car.price, requiredOrders: car.requiredOrders },
       expected,
     );
-    assert.equal(car.modelType, id);
+    assert.equal(car.modelType, id === 'cruiser' ? 'sedan' : id === 'sport' ? 'sport' : id);
   }
 });
 

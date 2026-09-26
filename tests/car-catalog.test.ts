@@ -134,19 +134,24 @@ test('Garage, engine, and Test Drive use the shared speed conversion and upgrade
 });
 
 test('experimental purchase is invalid; source promotion enables the normal purchase flow', () => {
-  const id = experimentalIds[0];
-  assert.ok(id, 'source lifecycle needs an experimental car for promotion coverage');
-  assert.deepEqual(createSkinPurchase(migrateSaveData(DEFAULT_SAVE_DATA), id), { status: 'invalidSkin' });
+  const id = 'city-cruiser-taxi-v2';
+  assert.deepEqual(CAR_LIFECYCLE_CONFIG[id], {
+    status: 'production', price: 1500, requiredOrders: 12,
+  });
+  const experimentalSkins = getProductionCarSkins(buildCarCatalog(lifecycleWith(id, {
+    ...CAR_LIFECYCLE_CONFIG[id], status: 'experimental',
+  })));
+  assert.deepEqual(createSkinPurchase(migrateSaveData(DEFAULT_SAVE_DATA), id, experimentalSkins), { status: 'invalidSkin' });
 
   const promotedCatalog = buildCarCatalog(lifecycleWith(id, {
-    status: 'production', price: 7000, requiredOrders: 30,
+    ...CAR_LIFECYCLE_CONFIG[id],
   }));
   const promotedSkins = getProductionCarSkins(promotedCatalog);
-  const baseSave = migrateSaveData({ ...DEFAULT_SAVE_DATA, coins: 7000, ordersCompleted: 30 });
-  assert.deepEqual(createSkinPurchase({ ...baseSave, ordersCompleted: 29 }, id, promotedSkins), {
-    status: 'notEnoughOrders', required: 30, completed: 29,
+  const baseSave = migrateSaveData({ ...DEFAULT_SAVE_DATA, coins: 1500, ordersCompleted: 12 });
+  assert.deepEqual(createSkinPurchase({ ...baseSave, ordersCompleted: 11 }, id, promotedSkins), {
+    status: 'notEnoughOrders', required: 12, completed: 11,
   });
-  assert.deepEqual(createSkinPurchase({ ...baseSave, coins: 6999 }, id, promotedSkins), {
+  assert.deepEqual(createSkinPurchase({ ...baseSave, coins: 1499 }, id, promotedSkins), {
     status: 'notEnoughCoins', missingCoins: 1,
   });
   const purchase = createSkinPurchase(baseSave, id, promotedSkins);

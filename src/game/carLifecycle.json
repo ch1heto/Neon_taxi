@@ -12,12 +12,12 @@
   "suv": {
     "status": "production",
     "price": 3000,
-    "requiredOrders": 20
+    "requiredOrders": 18
   },
   "hyper": {
     "status": "production",
     "price": 6500,
-    "requiredOrders": 35
+    "requiredOrders": 32
   },
   "skyline-r34": {
     "status": "production",
@@ -26,23 +26,23 @@
   },
   "aerocar": {
     "status": "production",
-    "price": 12000,
-    "requiredOrders": 50
+    "price": 15000,
+    "requiredOrders": 55
   },
   "mazda-rx7-fd": {
     "status": "production",
     "price": 4500,
-    "requiredOrders": 20
+    "requiredOrders": 24
   },
   "city-cruiser-taxi-v2": {
-    "status": "experimental",
+    "status": "production",
     "price": 1500,
-    "requiredOrders": 0
+    "requiredOrders": 12
   },
   "mercedes-amg": {
     "status": "production",
-    "price": 7000,
-    "requiredOrders": 30
+    "price": 8000,
+    "requiredOrders": 38
   },
   "lamborghini": {
     "status": "production",

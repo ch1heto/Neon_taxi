@@ -38,7 +38,7 @@ test('Mazda Test Drive profile stays commerce-free while source lifecycle can pu
   assert.equal('price' in MAZDA_RX7_FD_TEST_DRIVE_PROFILE, false);
   assert.equal('requiredOrders' in MAZDA_RX7_FD_TEST_DRIVE_PROFILE, false);
   assert.deepEqual(createSkinPurchase(migrateSaveData(DEFAULT_SAVE_DATA), MAZDA_RX7_FD_TEST_DRIVE_ID), {
-    status: 'notEnoughOrders', required: 20, completed: 0,
+    status: 'notEnoughOrders', required: 24, completed: 0,
   });
 });
 
